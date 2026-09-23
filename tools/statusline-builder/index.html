@@ -1,0 +1,1520 @@
+<!doctype html>
+<!--
+  sprint 15 T3.3（(internal design doc) §D8「首繪方向
+  （Rev 3 回正）」；spikes/S-f-RESULT.md「平台坑：防閃動 CSS 與 JS 失效態
+  fail-open 的衝突，及 <noscript> 逃生門」）：`js-init-pending` class 為
+  行動版目錄收合的「回訪防閃動」開關——出貨態即帶此 class，main.ts
+  init() 起手第一敘述 applyInitialCatalogCollapseState()（見其自身
+  文件）**先**依 catalog-collapse.ts 的單一謂詞決定
+  `#catalog-collapse-details` 的初始 open 態、**後**移除本 class（順序
+  見該函式文件；init() 另有 try/finally 冪等保險，確保 init 半路擲錯
+  時本 class 仍被移除，sprint 15 code review 🟡-1 修復）。移除前，
+  style.css「D8 行動版目錄收合」節的一條 `@media (max-width: 1099.98px)`
+  規則會把 `.segment-lists` 暫時壓成 0 高度，避免「先展開一瞬間、JS 跑完
+  才收起」的閃動；JS 完全失效時本 class 永遠不會被移除，靠 `<body>`
+  起手的 `<noscript>` 逃生門（見下）以相同選擇器／media query、來源序
+  後出覆寫暫抑樣式，確保 fail-open 承諾不被防閃動機制自己牴觸。
+-->
+<html lang="zh-Hant" class="js-init-pending">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Code Statusline 產生器｜ClientKit</title>
+    <meta
+      name="description"
+      content="在瀏覽器端設計 Claude Code 狀態列：勾選 segment、排序、配色、設定百分比閾值變色，即時預覽並產出 bash／PowerShell 腳本與 settings.json 片段，全程不上傳。"
+    />
+    <!-- 讓瀏覽器在任何 CSS 套用前就能為深色偏好使用者選深色預設畫布（配合下方換頁白閃防護 style）。 -->
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      主題切換 FOUC 防護（(internal design doc) §D4，
+      實文釘死；四個工具頁 byte-identical）：在樣式表套用前先讀
+      localStorage 的手動切換紀錄並補上 data-theme，避免「深色 OS 手選
+      淺色」重整時先閃一下深色 UA 預設。優先次序（localStorage＞系統＞
+      淺色）與 toggle 鈕的 wiring／aria-pressed 同步在 src/theme.ts，
+      main.ts 於任何渲染前 import。
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('clientkit-theme');
+          if (t === 'dark' || t === 'light')
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      /* 防換頁白閃：首繪前先給 html 主題底色（色值須與 src/style.css 的 --bg／--dark-bg 保持同步） */
+      html { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme='light']) { background-color: #0f1419; }
+      }
+      html[data-theme='dark'] { background-color: #0f1419; }
+    </style>
+  </head>
+  <body>
+    <!--
+      sprint 15 T3.3（(internal design doc) §D8；
+      spikes/S-f-RESULT.md「平台坑：防閃動 CSS 與 JS 失效態 fail-open 的
+      衝突，及 <noscript> 逃生門」；對 MS3 施工建議第 2 點）：`<noscript>`
+      逃生門——瀏覽器 scripting 旗標為**停用**時（真正的「JS 失效」，與
+      「JS 尚未跑完 init()」的暫態完全不同，後者瀏覽器仍會解析執行
+      `<script>`，本區塊不生效）此區塊才會被解析為真標記；生效時以
+      **完全相同**的選擇器／`@media` 範圍覆寫 style.css「D8 行動版目錄
+      收合」節的初載暫抑樣式（`max-height: none; overflow: visible`
+      解除，非改動其他屬性），使 <1100px 下目錄清單維持可見——否則
+      `<html class="js-init-pending">`（見上方 `<html>` 節點自身註解）
+      永遠不會被移除，`.segment-lists` 會被暫抑樣式永久壓成 0 高度，
+      直接牴觸 D8「JS 失效態下目錄仍可達」的 fail-open 承諾（即使
+      `<details open>` 本身仍是展開的）。置於本檔起手處＝確保其 CSSOM
+      位置**後於** Vite 注入在 `<head>` 內的本頁樣式表 `<link>`（來源序
+      後者覆寫，不需 `!important`；經 `npm run build` 後之 `dist/` 驗證，
+      本頁樣式表 `<link>` 恆位於 `<head>` 內、早於 `<body>`，見該 task
+      report）。
+    -->
+    <noscript>
+      <style>
+        @media (max-width: 1099.98px) {
+          html.js-init-pending #catalog-section .segment-lists {
+            max-height: none;
+            overflow: visible;
+          }
+        }
+      </style>
+    </noscript>
+
+    <!--
+      ============================================================
+      T3.1 靜態骨架（零 JS 邏輯）。互動由 T3.3 的 main.ts 接線、
+      預覽 DOM 由 T3.2 的 render-preview.ts 填入。本檔只出「固定頁面
+      骨架＋分區 landmark＋live region＋<template> 生成契約」；所有
+      節點的 id/class/data-* 命名為與 T3.3／T3.2 對接的結構契約，
+      無集中文件，詳見本檔（各 <template> 附近）與 main.ts 對應消費處
+      （instantiateTemplate／固定節點兩節）的內嵌註解。
+
+      掛載點＝檔尾 <script type="module" src="./main.ts">（比照
+      gif-editor：main.ts 以 import '../../src/style.css' + import
+      './style.css' 消費樣式，並在 DOMContentLoaded 後 query 下列節點
+      接線）。main.ts 由 T3.3 交付，本 task 不寫其邏輯。
+      ============================================================
+    -->
+    <header>
+      <a href="../../" class="back-link" data-i18n="ui.backLink">← 返回 ClientKit</a>
+      <h1 data-i18n="ui.title">Claude Code Statusline 產生器</h1>
+      <!-- T5.5：原句內含 <code>.sh</code>／<code>.ps1</code>／<code>settings.json</code>
+           三段 inline 標記，與 textContent-based data-i18n 不相容（套用器改寫
+           textContent 會清掉子元素）——扁平化為純文字 data-i18n（三副檔名改為
+           純文字，textContent 與原字面一致，僅去 <code> 樣式）。 -->
+      <p data-i18n="ui.headerDesc">
+        設計 Claude Code 的自訂狀態列：勾選要顯示的 segment、拖曳或用上下鈕排序、選顏色與百分比閾值變色，即時預覽，一鍵產出 bash（.sh）與 PowerShell（.ps1）腳本，以及 settings.json 片段。所有處理都在瀏覽器端完成，不會上傳任何資料。
+      </p>
+      <button type="button" class="theme-toggle" aria-pressed="false">深色模式切換</button>
+      <!--
+        T5.4（(internal design doc) §D5 A-1／A-4；
+        i18n-dom.ts initLangToggle）：語言切換鈕——顯示文字＝目標語言短碼
+        （切至另一語言）、aria-label＝完整敘述，兩者皆走 data-i18n／
+        data-i18n-attr（messages.ts `langToggle` 域），初始靜態字面對齊
+        zh-Hant 字典之值（開機 locale＝zh-Hant 時 applyI18n 為 no-op，
+        byte 不變）。click → 取反目前語言 → setLocale → 對 document 重跑
+        一次 applyI18n（見 i18n-dom.ts 檔頭「A-4 中間態邊界」）。
+      -->
+      <button
+        type="button"
+        class="lang-toggle"
+        data-i18n="langToggle.shortLabel"
+        data-i18n-attr="aria-label:langToggle.ariaLabel"
+        aria-label="切換為英文介面"
+      >EN</button>
+    </header>
+
+    <main>
+      <!--
+        sprint 15 T2.1（(internal design doc) §D1／§G6；
+        取代 sprint 14 T2.1「nav 隨全域設定留在左欄」的落點）：skip-nav
+        提升為 `<main>` 開頭的**第一個直接子節點**——四區版面（頂帶／
+        目錄／列區／設定）下，「主內容開頭」才是這組略過連結的語意正位。
+
+        sprint 15 T3.2（PLAN §D4「skip-nav 重置與補全」）：3 條 → **5 條**
+        （新增「跳至設定」「跳至目錄」）。落地前先查核 T2.1 遺留的兩個
+        條件句：
+        ・「若成 grid item…比照 #output-status 明式 grid-column:1/-1」——
+          **不適用**：MS2 已把 `main{display:grid}` 撤除（見
+          layout-columns.dom.test.ts「main 不再是 grid/flex 版面容器」
+          斷言），`<main>` 現為一般 block，本 nav 不是任何 grid 的 item，
+          無跨欄可指名，故本批**不**補 `grid-column` 規則、**不**新增
+          層疊歸屬斷言（無規則可斷言歸屬）。
+        ・排序：D4 表訂「跳至設定」**排第一**（降低鍵擊數，S-c 已實測
+          6 擊含 Enter 抵達設定第一控件）、「跳至目錄」第二，其餘三條
+          沿用原序。
+
+        三件精確化註記（T2.1 沿用）：
+        ・**非** Tab 首站：`<header>` 內恆有三個可聚焦元素（返回連結／
+          主題鈕／語言鈕）排在本 nav 之前，契約措辭照此書寫（PLAN §D1）。
+        ・`.skip-link` 為 `z-index:10`（style.css）：本 nav 提升到 `<main>`
+          開頭後，其聚焦時的絕對定位顯現位置正落在 sticky 頂帶的覆蓋區，
+          故頂帶 z-index 須 **<10**（本批維持 2，見 style.css
+          `.preview-section` 規則），否則會蓋掉聚焦中的 skip-link。
+        ・零 JS：五條皆為純 `<a href="#...">` 錨點，不加任何 focus 管理
+          JS——S-c 已實證 Chromium fragment navigation focus starting
+          point 原生行為已足（Enter 後下一次 Tab 落在落點區塊內），
+          WebKit 差異已誠實聲明記錄、不處理（見 PLAN §Spikes S-c 回填）。
+
+        五個連結落點語意（PLAN §D4 表）：
+        ・「跳至設定」→ #global-section（設定欄；排第一）。
+        ・「跳至目錄」→ #catalog-section（目錄欄外層容器；刻意不掛
+          `<summary>`——該元素桌面可能隱藏且原生可聚焦會奪焦，與其餘
+          落點「僅捲動不奪焦」慣例不一致；`<details>` 收合結構屬 T3.3，
+          本批只消費既有 id）。
+        ・「跳至已選擇」→ #selected-section（列區欄內；刻意不帶
+          tabindex，原生錨點跳轉僅捲動、不奪焦）。
+        ・「跳至預覽」→ #preview-section（全寬頂帶本身；同樣不帶
+          tabindex，#preview-terminal 才是捲動停點）。
+        ・「跳至產出腳本」→ #output-dialog-open（main.ts wireSkipToOutput
+          攔截後聚焦該鈕本身、不開 dialog；href 僅作無 JS 環境語意化備援）。
+
+        `scroll-margin-top`（PLAN §D4「為硬需求」）：五個落點錨定元素於
+        style.css 統一補一條集中規則（見該檔「D4 skip-nav 落點補償」節），
+        值綁 `var(--band-h, 192px)`——全寬頂帶為**全斷點 sticky**
+        （style.css `.preview-section`，不受任何 `@media` 拘束），故此
+        規則**不**限縮在 `@media (min-width: 1100px)` 內（與兩欄各自的
+        sticky 僅 ≥1100px 生效無關，遮蔽成因是頂帶本身）。
+      -->
+      <nav class="skip-nav" aria-label="區塊快速跳轉" data-i18n-attr="aria-label:ui.skipNavLabel">
+        <a href="#global-section" class="skip-link" data-i18n="ui.skipToSettings">跳至設定</a>
+        <a href="#catalog-section" class="skip-link" data-i18n="ui.skipToCatalog">跳至目錄</a>
+        <a href="#selected-section" class="skip-link" data-i18n="ui.skipToSelected">跳至已選擇</a>
+        <a href="#preview-section" class="skip-link" data-i18n="ui.skipToPreview">跳至預覽</a>
+        <a href="#output-dialog-open" class="skip-link" data-testid="skip-to-output" data-i18n="ui.skipToOutput">跳至產出腳本</a>
+      </nav>
+
+      <!--
+        T4.2（(internal design doc) §D4 A-3；守
+        SPEC.md:102「live region 須常駐 a11y tree（不得以 display:none／
+        hidden 切換承載播報）」不變量）：複製／下載成功播報 live region，
+        常駐於 `<main>` 開頭，**不**隨三份產出隨進下方 `#output-dialog`
+        ——關閉的原生 `<dialog>` 依 UA 預設樣式為 `display:none`，若播報
+        節點留在其內即違反此不變量。main.ts `announceOutput()` 呼叫點與
+        行為完全不變。
+
+        sprint 15 T2.1：本節點與下方 #error-message 於四區版面中皆為
+        `<main>` 的直接子節點、**排在頂帶之前**（PLAN §D1 的 `<main>` 內
+        完整相對序：skip-nav → status/error → 頂帶 → `.builder-columns`）。
+        三欄 grid 已自 `<main>` 下移到 `.builder-columns` wrapper 身上，
+        本節點**不再是 grid item**，故 sprint 14 為此而設的
+        `grid-column: 1 / -1` 跨欄規則同批撤除（不是遺漏——沒有 grid
+        父層可跨；若日後版面再變、本節點重新成為 grid item，須比照
+        既有慣例補明式 `grid-column: 1 / -1` 並附層疊歸屬斷言）。
+      -->
+      <div role="status" aria-live="polite" id="output-status" class="status-message is-empty"></div>
+
+      <!--
+        錯誤播報（PLAN §Builder UI a11y 契約末條「驗證拒收 role=alert」）：
+        常駐 role=alert 容器，供 main.ts／validate.ts 於前綴或自訂分隔符
+        觸及拒收集 R（換行/CR/NUL/控制字元/bidi/PUA/長度>8）時填入訊息。
+        沿用 gif-editor 的 is-empty 收合 pattern：節點永不切 hidden，只切
+        .is-empty 收合視覺框，確保 SR 的 alert 監看自載入起即掛載。
+      -->
+      <div role="alert" id="error-message" class="alert-message is-empty"></div>
+
+      <!--
+        sprint 15 T2.1（PLAN §D1／§D5；spikes/S-a-RESULT.md「七、MS2 施工
+        指令」1；取代 sprint 14 T2.1 的「預覽降級入三欄中欄」）：即時預覽
+        **復位為 `<main>` 的直接子節點、全寬頂帶**——捲動模型 M1′-a：
+        `<main>` 為一般 block，skip-nav／status/error／頂帶皆為其直接子
+        節點，**只有三欄**收進下方 `.builder-columns` wrapper。此結構使
+        頂帶 sticky 的包含塊＝main 的 content box，位移餘裕 ≈550px
+        （1280×800 實算）＞黏住所需捲距 268px，「捲過頁首後頂帶恆貼齊
+        視窗頂端」因此成立（S-a T1／T2 門檻 4/4 通過；M1′-b 外框臂於同一
+        門檻雙敗出局）。
+
+        頂帶組成（D5「整包」定案）：標題／底色 ×2／情境 ×4／**產出腳本鈕
+        （頂帶右端——由 `.preview-controls__output-open` 的
+        `margin-left:auto` 承擔對齊，非新增節點）**／固定示範時鐘句／
+        終端框。底色與情境是**預覽器的檢視控制**（不入 BuilderConfig），
+        故貼著被檢視物走，不歸全域設定欄。
+
+        高度上限（D1「頂帶整體 ≤40dvh」，sprint 09 A-1 原文契約）：本批起
+        40dvh 封頂改掛**頂帶自身**（style.css `.preview-section`），
+        `.preview-terminal` 的 `max-height:40dvh` 同批撤除、改
+        `flex:1 1 auto; min-height:0` 由終端框內捲吸收超出量——否則頂帶
+        總高＝其他內容＋40dvh，必然突破自己的上限。
+
+        捲動停點契約：本節點僅 `role="region"`、**不**帶 tabindex（自身
+        非 CSS 捲動容器，高度由終端框吸收）；#preview-terminal 維持
+        `tabindex="0"`。新版面新增的兩個欄捲動容器（目錄欄／列區欄）
+        刻意**不**掛 `role="region"`／`tabindex`——Chromium 會自行為
+        「無可聚焦子節點的捲動容器」補上鍵盤停點，該停點不帶
+        `role="region"`，jsdom 亦不模擬，故 dom 案改鎖「可聚焦元素清單／
+        順序」契約，真瀏覽器層的停點總數由 MS4 e2e 承接（見
+        preview-band.dom.test.ts 該 describe 註解）。
+
+        id="preview-section" 沿用（skip-nav「跳至預覽」錨點、e2e 案 11
+        幾何探針皆以此 id 為單一事實來源）。
+      -->
+      <section
+        class="tool-section preview-section"
+        aria-labelledby="preview-heading"
+        id="preview-section"
+        role="region"
+      >
+        <div class="preview-section__inner">
+          <h2 id="preview-heading" data-i18n="ui.previewHeading">即時預覽</h2>
+
+          <div class="preview-controls">
+            <fieldset class="control-group segmented-group" id="preview-bg-group">
+              <legend class="sr-only" data-i18n="ui.previewBgLegend">預覽底色</legend>
+              <div class="segmented-control">
+                <!-- data-icon（暗／亮）為 variant-B icon-only 密集列的裝飾字符（非
+                     production 切換入口，見上方頂帶註解），留原樣不入 i18n 面。 -->
+                <label class="inline-choice segmented-control__option" data-icon="暗" title="深色" data-i18n-attr="title:ui.bgDark">
+                  <input type="radio" name="preview-bg" id="preview-bg-dark" value="dark" checked />
+                  <span class="segmented-control__label" data-i18n="ui.bgDark">深色</span>
+                </label>
+                <label class="inline-choice segmented-control__option" data-icon="亮" title="淺色" data-i18n-attr="title:ui.bgLight">
+                  <input type="radio" name="preview-bg" id="preview-bg-light" value="light" />
+                  <span class="segmented-control__label" data-i18n="ui.bgLight">淺色</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <!--
+              情境四項可見文字縮短為原文字首（滿血／早期／條件／Windows），
+              皆為 aria-label 全文的前綴子字串（Label in Name）；aria-label
+              內容與縮短前的原可見文字逐字相同，SR 播報內容不變。
+            -->
+            <fieldset class="control-group segmented-group" id="preview-scenario-group">
+              <legend class="sr-only" data-i18n="ui.previewScenarioLegend">預覽情境</legend>
+              <div class="segmented-control">
+                <!-- data-icon（滿／早／條／W）為 variant-B 裝飾字符，留原樣不入 i18n 面（同上）。 -->
+                <label class="inline-choice segmented-control__option" data-icon="滿" title="滿血（全欄位齊備）" data-i18n-attr="title:ui.scenarioFullFull">
+                  <input
+                    type="radio"
+                    name="preview-scenario"
+                    id="scenario-full"
+                    value="full"
+                    checked
+                    aria-label="滿血（全欄位齊備）"
+                    data-i18n-attr="aria-label:ui.scenarioFullFull"
+                  />
+                  <span class="segmented-control__label" data-i18n="ui.scenarioFullShort">滿血</span>
+                </label>
+                <label class="inline-choice segmented-control__option" data-icon="早" title="早期 session（可 null 欄全 null）" data-i18n-attr="title:ui.scenarioEarlyFull">
+                  <input
+                    type="radio"
+                    name="preview-scenario"
+                    id="scenario-early-null"
+                    value="early-null"
+                    aria-label="早期 session（可 null 欄全 null）"
+                    data-i18n-attr="aria-label:ui.scenarioEarlyFull"
+                  />
+                  <span class="segmented-control__label" data-i18n="ui.scenarioEarlyShort">早期</span>
+                </label>
+                <label class="inline-choice segmented-control__option" data-icon="條" title="條件欄位全缺席" data-i18n-attr="title:ui.scenarioCondFull">
+                  <input
+                    type="radio"
+                    name="preview-scenario"
+                    id="scenario-conditional-absent"
+                    value="conditional-absent"
+                    aria-label="條件欄位全缺席"
+                    data-i18n-attr="aria-label:ui.scenarioCondFull"
+                  />
+                  <span class="segmented-control__label" data-i18n="ui.scenarioCondShort">條件</span>
+                </label>
+                <label class="inline-choice segmented-control__option" data-icon="W" title="Windows 長路徑＋CJK" data-i18n-attr="title:ui.scenarioWinFull">
+                  <input
+                    type="radio"
+                    name="preview-scenario"
+                    id="scenario-windows-cjk"
+                    value="windows-cjk"
+                    aria-label="Windows 長路徑＋CJK"
+                    data-i18n-attr="aria-label:ui.scenarioWinFull"
+                  />
+                  <span class="segmented-control__label" data-i18n="ui.scenarioWinShort">Windows</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <button
+              type="button"
+              id="output-dialog-open"
+              class="button-like button-like--secondary preview-controls__output-open"
+              data-testid="output-dialog-open"
+              data-i18n="ui.outputOpen"
+            >產出腳本</button>
+          </div>
+
+          <!-- T5.5：mock 時鐘常駐說明改走 data-i18n（開機 applyI18n 套用、切換自動
+               翻轉），不再由 main.ts initPreviewMockClockHint 寫入 textContent。 -->
+          <p class="control-hint preview-band__mock-hint" id="preview-mock-clock-hint" data-i18n="ui.mockClockHint">預覽為固定示範時鐘，產出腳本執行時為真時鐘。</p>
+
+          <!--
+            終端模擬框（PLAN §多列預覽 a11y，M4）：外層固定 role="group"＋
+            aria-label="狀態列預覽"（不隨內容重算）；render-preview.ts 於每次
+            resolve 後在內部建逐列 role="img" 子容器（aria-label＝「第 N
+            列：〈該列 toAriaLabel 結果〉」，N＝渲染列序），span 為裝飾、
+            aria-hidden。全隱藏 `[[]]` 時內部渲染單一子容器承載
+            EMPTY_PREVIEW_LABEL。深/淺底以 --dark／--light modifier 切換
+            （此處預設 --dark）。本節點為頂帶內**唯一**顯式捲動停點
+            （`tabindex="0"`，見上方頂帶節點註解）；overflow-x:auto
+            （橫向）＋overflow-y:auto（縱向）。
+
+            sprint 15 T2.1（PLAN §D1 連帶實作指令）：本框的
+            `max-height:40dvh` **已撤除**——40dvh 預算改掛頂帶整體，本框
+            轉為 `flex:1 1 auto; min-height:0`（見 style.css
+            `.preview-terminal`），即「頂帶封頂、超出量由本框內捲吸收」。
+            反過來寫（框自帶 40dvh）會使頂帶總高＝其他內容＋40dvh、必然
+            突破自己的上限，故兩者是同一個決策的兩面，不得只改一邊。
+          -->
+          <div
+            class="preview-terminal preview-terminal--dark"
+            id="preview-terminal"
+            role="group"
+            aria-label="狀態列預覽"
+            data-i18n-attr="aria-label:previewAria.groupLabel"
+            tabindex="0"
+          ></div>
+        </div>
+      </section>
+      <!-- /#preview-section（sprint 15 T2.1：全寬預覽頂帶） -->
+
+      <!--
+        sprint 15 T2.1（PLAN §D1 四區版型／§G3 序一致性／§D3 軌寬；
+        spikes/S-a-RESULT.md「七」1、S-j-RESULT.md「五」）：三欄 wrapper
+        ——**只收三欄**（目錄｜列區｜設定），頂帶與 status/error 皆在本
+        wrapper 之外（見上）。三欄依 DOM 序落格，零 CSS `order`、零 JS
+        搬移、三欄本身不指名 grid-area/grid-column：**DOM 序＝視覺序＝
+        Tab 序**（G3），且兩個斷點共用同一份 DOM 序（<1100px 天然單欄
+        堆疊、同序回歸文件流）。軌寬
+        `minmax(340px, 1fr) 1.6fr 0.9fr`（S-j 定案，列區恆最寬＝G7 上位
+        約束），見 style.css「四區版面」節。
+      -->
+      <div class="builder-columns">
+        <!--
+          sprint 15 T2.1（PLAN §D1 目錄欄／§D5 附掛遷移／§Context 缺陷 1）：
+          segment 目錄欄——**獨立捲動容器**（style.css：≥1100px 掛
+          `position:sticky; top:var(--band-h); max-height:calc(100dvh -
+          var(--band-h)); overflow-y:auto; overscroll-behavior:contain`）。
+          與列區各自為政正是本批的承重不變量：「拖曳的**來源與目標分屬
+          獨立捲動容器**」——sprint 14 的「目錄＋已選擇同居單一捲動容器」
+          使捲動來源即移動目標，真人拖曳須於中途捲動（e2e 靠程式化
+          `scrollIntoView` 取得真人取不到的優勢而綠，並未背書可用性），
+          本批就此消滅該幾何。
+
+          id="catalog-section" 為**本批新增**：D4 五條 skip 落點之一
+          （「跳至目錄」）的錨點，刻意掛**收合容器外層**、不掛
+          `<summary>`——後者桌面態隱藏且為原生可聚焦元素會奪焦，與其餘
+          落點「僅捲動不奪焦」的慣例不一致。skip 連結本身與 D8 的
+          `<details>` 收合結構屬 MS3（T3.2／T3.3），本批只先立 id 與
+          外層容器，不建收合結構。
+
+          內容序：教學帶（D5 遷入本欄頂）→ segment 目錄四類分區。
+        -->
+        <div class="builder-columns__catalog" id="catalog-section">
+          <!--
+            sprint 14 T2.6（拖曳教學帶，(internal design doc)
+            §D5）＋sprint 15 T2.1 遷移（PLAN §D5 附掛遷移表：右欄頂 →
+            **目錄欄頂**）：本批**只換掛載位置**——dismiss 狀態機（單一
+            謂詞「顯示 ⟺ 讀值 ≠ '1'」、localStorage key
+            `clientkit-statusline-builder-drag-tutorial`、tutorial-band.ts
+            單一出口）與 main.ts `wireTutorialBand` 接線逐字不動。遷入
+            目錄欄的理由：教學對象（可拖曳的目錄項）就在本欄內，帶與其
+            所教的互動同屏。D8（行動版目錄收合，MS3）已明訂教學帶**不**
+            納入收合區、維持目錄欄頂。
+
+            MAGI review 🟡-5（sprint 14 round-2 FOUC 修法，續行）：本節點
+            靜態出貨態**帶 `hidden` 屬性**（由 src/style.css 既有
+            `[hidden]{display:none!important}` 承接隱藏——本檔 style.css
+            規則全用 class 選擇器、無 `!important`，對此天然安全），
+            main.ts 於 init 依 `shouldShowTutorialBand()` 謂詞**移除**
+            （`setHidden(el, !shouldShowTutorialBand())`）。已 dismiss 使用者
+            冷載/慢網下零 FOUC；未 dismiss 使用者的代價是帶延到 JS 跑完才
+            出現（可接受的方向性取捨）。無 JS 環境恆隱藏、語意一致（拖曳
+            互動本身在無 JS 環境亦不存在，教學提示天然不適用）。
+
+            SVG 為 inline 靜態簽入、裝飾性（`aria-hidden="true"`＋
+            `focusable="false"`，語意由文案句承載）；`stroke`/`fill` 皆
+            `currentColor`，容器 `color` 走主題變數 `--fg-muted`；keyframes
+            僅動 `transform`（不改任一維度尺寸），`prefers-reduced-motion:
+            reduce` 停格後版面尺寸天然不變。i18n：文案句
+            `tutorial.dragHint`／dismiss 鈕 `tutorial.dismiss`（messages.ts
+            `tutorial` 域，zh-Hant／en 齊備）；dismiss 鈕刻意不另掛
+            `aria-label`（可見文字本身即可及名稱，同 #output-dialog-close
+            既有慣例）。
+          -->
+          <div class="tutorial-band" id="tutorial-band-slot" hidden>
+            <span class="tutorial-band__grip" aria-hidden="true">⠿</span>
+            <svg
+              class="tutorial-band__svg"
+              aria-hidden="true"
+              focusable="false"
+              viewBox="0 0 64 22"
+              width="64"
+              height="22"
+            >
+              <line x1="4" y1="11" x2="56" y2="11" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" />
+              <rect class="tutorial-band__svg-box" x="4" y="4" width="14" height="14" rx="2" fill="currentColor" />
+            </svg>
+            <p class="tutorial-band__text" data-i18n="tutorial.dragHint">拖曳段名可排序與移列</p>
+            <button
+              type="button"
+              id="tutorial-dismiss"
+              class="tutorial-band__dismiss"
+              data-testid="tutorial-dismiss"
+              data-i18n="tutorial.dismiss"
+            >知道了</button>
+          </div>
+
+          <!-- ============ Segment 目錄（四類分區、輕量常駐項） ============ -->
+          <!--
+            T5.9／T3.3 沿革（07-PLAN §D3-R4「transfer-list 互動（灰化留位）」／
+            09-PLAN §D3 A-1／A-2「目錄項可直接拖入目標列啟用」）：四類
+            landmark（永在12／百分比5／條件10／shell-out3＝30 段）與輕量
+            常駐項（catalog.ts `buildCatalogGroups` 純函式算 view-model，
+            main.ts 依 SEGMENT_DESCRIPTORS 目錄定義序 clone
+            #catalog-item-template 填入，一次建置、永不重排）皆**不變**；
+            勾選＝啟用（原位灰化＋「已加入」徽章，可再點取消），完整控件列
+            住列區 #segment-row-groups（啟用）或 #segment-hidden-pool
+            （停用，不銷毀）。
+
+            sprint 15 T2.1：本區整段自 sprint 14 右欄搬入**目錄欄**（DOM
+            內容零變動，只換容器；渲染邏輯／compact 形／樣例值皆不動）。
+            拖曳因此改為**左右並置的跨欄短程**，且來源（本欄）與目標
+            （列區欄）分屬獨立捲動容器——G4「拖曳過程中不需捲動」的結構
+            前提（PLAN §Goals G4／§Context 缺陷 1）。
+
+            sprint 15 T3.3（PLAN §D8「行動版目錄收合」；spikes/
+            S-f-RESULT.md 11/11 實證＋「對 MS3 施工的具體建議」）：
+            `.segment-lists__hint` 自本批起搬至此處（四類分區之前、
+            <details> 收合結構**之外**、緊鄰下方 <summary>），使行動版
+            收合態仍看得到勾選說明——D8 定案原文「hint 留收合區外」，本批
+            把「收合區」具體化為原生 <details>，hint 因此不能再像
+            sprint 14 那樣當 <details> 內容的第一個子節點（那樣會隨收合
+            一起消失），改為 <details> 前一個 sibling。
+          -->
+          <p class="segment-lists__hint" data-i18n="ui.catalogHint">
+            勾選以啟用 segment：勾選後本項原位灰化標記「已加入」，其完整控件列會出現在下方「已選擇」清單的對應列群組，
+            可於該處排序、配色、指派顯示列等；再點一次取消勾選即可移除。
+          </p>
+
+          <!--
+            sprint 15 T3.3（PLAN §D8；spikes/S-f-RESULT.md「機制比較：(a)
+            summary-only vs (b) toggle+守衛+旗標」定案機制 (a)；「對 MS3
+            施工的具體建議」1／3／7）：四類分區收進原生 <details>/<summary>
+            收合結構——`.segment-lists`（下方）為本節點**唯一**內容子節點
+            （summary 之外別無其他子節點）。
+
+            **HTML 出貨態帶 `open`**（PLAN §D8「首繪方向（Rev 3 回正）」，
+            S-f 坑 1 語意校準：真實目錄清單本為 JS 動態渲染——四個
+            <ol id="segment-list-*"> 出貨態為空、main.ts buildCatalogItems
+            於 init() 才 clone 填入——fail-open 在此實際覆蓋的是「init()
+            半路擲錯」情境，而非「停用 script 下目錄項完整可見」，見該檔
+            該節「S-f 坑 1 語意校準」段落）——`open` 屬性本身確保
+            **JS 完全未執行時** `<details>` 仍是展開狀態、`<summary>`
+            仍可原生鍵盤/滑鼠操作（雖然此時清單內容為空，那是既有、非本批
+            新增的限制），不會因為收合機制的引入而讓「目錄可達」這個更基本
+            的承諾倒退。
+
+            main.ts init() 起手第一敘述 applyInitialCatalogCollapseState()
+            （已自 wireCatalogCollapse() 前移，見其自身文件）依
+            catalog-collapse.ts 的單一謂詞 `isCatalogCollapsed()` 決定是否
+            把本節點收起（僅 <1100px 且使用者曾收合）；`<summary>` 的
+            click/keydown（main.ts wireCatalogCollapse()，T3.4）為
+            **唯一**持久化觸發來源（機制 (a)
+            summary-only——不監聽 `<details>` 的 `toggle` 事件，天生免疫
+            「跨斷點強制展開的程式化 `open=true` 賦值也會派發 toggle」的
+            誤判風險，S-f-RESULT.md「機制比較」節）。
+
+            回訪防閃動：出貨態另掛 `<html class="js-init-pending">`（見
+            本檔 `<html>` 節點自身註解）＋ style.css「D8 行動版目錄收合」
+            節的初載暫抑樣式（僅 `@media (max-width: 1099.98px)` 生效，
+            壓 `.segment-lists` 為 0 高度），main.ts 於 init() 決定完初始
+            open 態後移除該 class 解除暫抑；`<body>` 起手處的
+            `<noscript>` 逃生門確保 JS 完全失效時本機制不會弄巧成拙（見
+            該處註解）。
+
+            桌面（≥1100px）硬條件：style.css 同節
+            `@media (min-width: 1100px) { .segment-lists-details__summary
+            { display: none; } }`——`<summary>` 非 Tab 停點、不可點擊、
+            a11y 播報與可見狀態一致（PLAN §D8「桌面態硬條件」，
+            S-f-RESULT.md 序列 5 機械驗證）；main.ts 於跨斷點切至桌面時
+            把 `open` 程式化設回 true（不清除 localStorage 偏好，跨斷點
+            強制展開/恢復，見 wireCatalogCollapse 文件）。
+
+            三角標記／list-style／:focus-visible／深淺主題對比／
+            prefers-reduced-motion 全套樣式見 style.css「D8 行動版目錄
+            收合」節（PLAN §D8「樣式基礎工」：tools/／src/ 對
+            details/summary 先前零規則，本批從零建立）。
+          -->
+          <details class="segment-lists-details" id="catalog-collapse-details" open>
+            <summary
+              class="segment-lists-details__summary"
+              id="catalog-collapse-summary"
+              data-i18n="ui.catalogCollapseSummary"
+            >Segment 目錄清單</summary>
+
+            <!--
+              T5.9（(internal design doc) §D3-R4
+              「transfer-list 互動（灰化留位）」，依賴 T5.8）：四類 landmark
+              （§Segment 目錄：永在12／百分比5／條件10／shell-out3＝30 段
+              四類）維持不變；但每 <section> 的 <ol> 內容由「完整控件列」
+              改為**輕量常駐項**（catalog.ts buildCatalogGroups 純函式計算
+              view-model，main.ts 依 SEGMENT_DESCRIPTORS 目錄定義序 clone
+              #catalog-item-template 填入，一次性建置、永不重排）。
+              勾選＝啟用：項目原位灰化＋顯示「已加入」徽章（可再點取消）；
+              完整控件列（buildSegmentRow 產出，含排序鈕／配色／前綴／列指派
+              等）改住 #segment-row-groups（啟用）或 #segment-hidden-pool
+              （停用，不銷毀）——見下方 selected 區塊註解。地標／標題結構
+              沿用 T5.3 既有結構。
+
+              T3.3（(internal design doc) §D3 A-1／A-2）：
+              目錄項本身仍終生不重排，但現可拖曳直接落到已選擇清單目標列
+              啟用（main.ts wireCatalogDragAndDrop，checkbox 命中區豁免——
+              拖曳起手排除該命中區以免擋掉點選勾取）；checkbox 勾選路徑
+              保留作為鍵盤等效（SPEC「拖放具鍵盤等效」不變量），兩者共用
+              同一 setSegmentEnabled／commitSegmentMove 收斂路徑。
+
+              sprint 15 T2.1 校準（取代 sprint 14 T2.2 的「目錄與已選擇
+              同居右欄單一捲動容器、同容器內拖曳」敘述）：目錄（本欄）與
+              已選擇（列區欄）**分屬左右並置的兩個獨立捲動容器**，拖曳為
+              跨容器短程；互動模型與判定邏輯本身仍不變（wireCatalogDrag-
+              AndDrop 以 id／data-testid 查找節點，不依賴父層路徑）。
+            -->
+            <div class="segment-lists">
+              <section class="segment-section" aria-labelledby="segments-always-heading">
+                <h2 id="segments-always-heading" class="segment-section__heading" data-i18n="ui.catalogAlwaysHeading">永在 segment</h2>
+                <p class="segment-section__desc" data-i18n="ui.catalogAlwaysDesc">stdin JSON 恆有的欄位，隨時可顯示。</p>
+                <ol class="segment-list" id="segment-list-always" data-category="always"></ol>
+              </section>
+
+              <section class="segment-section" aria-labelledby="segments-percentage-heading">
+                <h2 id="segments-percentage-heading" class="segment-section__heading" data-i18n="ui.catalogPercentageHeading">百分比 segment</h2>
+                <!-- T5.5：原 <code>--</code> inline 標記與 textContent data-i18n 不相容，扁平化為純文字 --（textContent 一致）。 -->
+                <p class="segment-section__desc" data-i18n="ui.catalogPercentageDesc">可掛百分比閾值變色；值為 null 時顯示 --、不套閾值色。</p>
+                <ol class="segment-list" id="segment-list-percentage" data-category="percentage"></ol>
+              </section>
+
+              <section class="segment-section" aria-labelledby="segments-conditional-heading">
+                <h2 id="segments-conditional-heading" class="segment-section__heading" data-i18n="ui.catalogConditionalHeading">條件性 segment</h2>
+                <p class="segment-section__desc" data-i18n="ui.catalogConditionalDesc">狀態不成立時該欄缺席，整段自動剔除。</p>
+                <ol class="segment-list" id="segment-list-conditional" data-category="conditional"></ol>
+              </section>
+
+              <section class="segment-section" aria-labelledby="segments-shellout-heading">
+                <h2 id="segments-shellout-heading" class="segment-section__heading" data-i18n="ui.catalogShelloutHeading">Shell-out segment</h2>
+                <p class="segment-section__desc" data-i18n="ui.catalogShelloutDesc">值來自執行外部指令（git／時鐘），非 stdin JSON。</p>
+                <ol class="segment-list" id="segment-list-shellout" data-category="shell-out"></ol>
+              </section>
+            </div>
+          </details>
+        </div>
+        <!-- /.builder-columns__catalog#catalog-section（目錄欄） -->
+
+        <!--
+          sprint 15 T2.1（PLAN §D1 列區／§G7「列區最寬」使用者定案）：
+          已選擇列區欄——**第二個獨立捲動容器**（CSS 契約與目錄欄同組，
+          見 style.css）。sprint 14 的 `.builder-columns__list`（教學帶＋
+          目錄＋已選擇三段同居）於本批**瘦身為只裝 #selected-section**；
+          class 與 id="list-column" 皆沿用（只搬不刪紀律：e2e 案 10
+          `caseModeSwitchScrollStable` 以此 id 取捲動容器，語意由「唯一
+          捲動容器」改為「列區欄」，該案文案校準屬 MS4 T4.1）。
+          軌寬 1.6fr 為三欄最寬（S-j 實測於兩個門檻 viewport 皆成立）。
+        -->
+        <div class="builder-columns__list" id="list-column">
+          <!--
+            T5.8／T5.9／T5.14 沿革（07-PLAN §D3-R4／Rev 11「暫存列位置制」）：
+            「已選擇」（依渲染列分組）——本容器內三個掛點：#segment-move-status
+            （排序播報 live region）、#add-pending-row（頂部單一「新增一列」
+            鈕）、#segment-row-groups（列群組容器；UI 暫存空列 <div> 亦依
+            rowSlots 位置制插進此容器內、可落在真實列之間）。停用段的完整
+            控件列住 #segment-hidden-pool（本 wrapper 之外、`<main>` 直接
+            子節點，見其自身註解）。
+
+            MAGI code review 2026-07-11 Important #5（Fix 4）：本容器
+            `role="region"`＋`aria-label`＋id 供 skip-nav「跳至已選擇」；
+            **不**加 `tabindex`——本容器自身非捲動容器，縱向捲動歸外層
+            `.builder-columns__list`（sprint 15 起為列區欄）。此判定於本批
+            仍成立：新增的捲動容器是**欄**，不是本容器。
+
+            sprint 15 T2.1：本節點自 sprint 14 右欄的第三段升為列區欄的
+            唯一內容（id／role／aria-label／內部結構完全不變，main.ts 既有
+            id query 不受影響）。
+          -->
+          <div id="selected-section" role="region" aria-label="已選擇（依列分組）" data-i18n-attr="aria-label:ui.selectedSectionLabel">
+            <!--
+              排序播報 live region（常駐、sr-only）：上／下移或拖曳後，main.ts
+              填入「<段名> 移至第 N 列第 M 位（共 K）」（row-groups.ts
+              formatMoveAnnouncement，N＝渲染列序）。與 #global-live-status
+              分開，避免移位頻繁播報淹沒 mode 切換等重要提醒。
+
+              T3.4（(internal design doc) §D3 A-3）：目錄
+              拖入停用段啟用（或 checkbox 勾選啟用，鍵盤等效）改播「<段名>
+              已加入第 N 列第 M 位（共 K）」——語意上是「加入」而非「移動」
+              既有段；已啟用目錄項被拖入仍退化為「移至」（main.ts
+              announceSegmentLanded，origin 感知）。N／M／K 一律**視覺顯示
+              編號**（經 slotIndexOfRealRow 映射，與使用者眼見列號一致）。
+            -->
+            <div role="status" aria-live="polite" id="segment-move-status" class="sr-only"></div>
+
+            <!--
+              T5.15（(internal design doc)，2026-07-12
+              使用者回饋：「有能使用方向鍵來排序(上下換列)的建議要寫文件到網頁
+              上告知，減少資訊不對稱」）：排序操作說明——純靜態 <p>，沿用目錄欄
+              四類分區既有的 .segment-section__desc class 與語氣（見上方
+              #segments-always-heading 等區塊），無 tabindex／無互動屬性、不動
+              任何互動邏輯（main.ts 未變）。
+            -->
+            <p class="segment-section__desc" data-i18n="ui.sortHint">
+              排序方式：滑鼠可按住段卡（⠿ 把手或頂部）拖曳到任意位置或其他列；鍵盤可用每段的 ↑/↓
+              鈕在同列相鄰交換，或在「顯示於第 N 列」下拉直接按方向鍵切換所在列。
+            </p>
+
+            <!--
+              T5.9／T5.14（PLAN §D3-R4「新增一列」／Rev 11「暫存列位置制」）：
+              列區頂部單一按鈕，取代 T5.4 每段獨立「新增一列」按鈕（S7 鍵盤
+              誤觸裁決維持有效——不進 select option）。按下→main.ts 於 rowSlots
+              末端追加一個 pending slot（appendPendingSlot），於 #segment-row-groups
+              內生成一個 UI 暫存空列 <div>（見 renderPendingRowContainers）＋
+              刷新所有啟用段的「顯示於第 N 列」select（枚舉併入該暫存列）。
+            -->
+            <button type="button" id="add-pending-row" class="button-like button-like--secondary add-pending-row-button" aria-label="新增一列" data-i18n="ui.addPendingRow" data-i18n-attr="aria-label:ui.addPendingRowAria">
+              ＋ 新增一列
+            </button>
+
+            <!--
+              T5.3（(internal design doc) §排序與列指派
+              UX「清單結構重構」）：啟用段依渲染列分組呈現（雙區清單之「啟用
+              區」）。初始為空（無啟用段時零列群組）；main.ts 依 config 現有
+              row 分組（`normalizeRows` 正規化後恆連續 0..N-1）動態生成／銷毀
+              #segment-row-group-template 實例，每列一個與目錄欄四類分區等價的
+              地標／標題結構（<section aria-labelledby>＋「第 N 列」標題）。
+              T5.9 起，啟停切換的入口改目錄欄勾選控件（既有 <li> 於本容器
+              ↔ #segment-hidden-pool 間搬移，節點重用，不銷毀重建）。
+
+              T5.14（PLAN Rev 11「列耗盡保留＋暫存列位置制」）：UI 暫存空列
+              （#segment-pending-row-template 實例）由 main.ts 依 rowSlots
+              位置制**直接插進本容器內、正確位置**（可落在真實列 <section>
+              之間，見 renderPendingRowContainers），不再另立
+              #segment-pending-rows 獨立容器（已移除）——空列恆不持有任何
+              <li>，整批重插不違節點重用鐵律；真實列 <section> 彼此相對順序
+              永不變（grow 只在尾端 append），故 rowIndexOfOl 不受影響。
+            -->
+            <div class="segment-row-groups" id="segment-row-groups"></div>
+          </div>
+        </div>
+        <!-- /.builder-columns__list#list-column（列區欄） -->
+
+        <!--
+          sprint 15 T2.1（PLAN §D1 設定欄／§Context 缺陷 2「版位權重倒置」）：
+          全域設定欄——自 sprint 14 的 LTR 黃金位（最左）改置**最右**：
+          設定完即極少互動，取視覺權重最低位（PLAN §Spec deltas 新增的
+          「版位判準」不變量）。
+
+          OQ-2 定案（spikes/S-b-RESULT.md）：本欄**不設獨立捲軸**——
+          #global-section 自然高 440px，在本 sprint 量到的全部頂帶高度
+          情境（191–320px）下皆有 40–168px 正餘裕，故本欄不掛
+          `max-height`／`overflow`，隨頁面捲動即可（理論超預算情境留待
+          真機覆核，不預先加捲軸）。
+        -->
+        <div class="builder-columns__settings">
+          <!-- ============ 全域設定 ============ -->
+          <section class="tool-section" aria-labelledby="global-heading" id="global-section">
+            <h2 id="global-heading" data-i18n="ui.globalHeading">全域設定</h2>
+            <div class="global-controls">
+              <!--
+                呈現模式（plain↔powerline）＝視圖切換（PLAN §D3／§Builder UI
+                a11y 契約 mode 切換條）：切到 powerline 時 main.ts 需 (1) 顯示
+                每列的前景覆寫色選（fg-override）、(2) 停用自訂分隔符、(3) 焦點
+                移至新控件群起點＋經 #global-live-status 播報「顏色語意已翻轉，
+                請檢視預覽」。radio 群＝原生單選語意，legend 承載群組名。
+              -->
+              <fieldset class="control-group" id="mode-group">
+                <legend data-i18n="ui.modeLegend">呈現模式</legend>
+                <label class="inline-choice">
+                  <input type="radio" name="mode" id="mode-plain" value="plain" checked />
+                  <span data-i18n="ui.modePlain">純文字（plain）</span>
+                </label>
+                <label class="inline-choice">
+                  <input type="radio" name="mode" id="mode-powerline" value="powerline" />
+                  <span data-i18n="ui.modePowerline">Powerline（色塊＋箭頭）</span>
+                </label>
+              </fieldset>
+
+              <!--
+                分隔符（PLAN §型別契約 SeparatorConfig）：preset 正面表列
+                （'|'／'›'／'·'／空格）＋「自訂」。選「自訂」時 main.ts 顯示
+                #separator-custom（≤8、plain 限定，powerline 模式整組停用）。
+                帶值控件一律 label[for]＋獨立 id（禁 wrap-label）。
+              -->
+              <div class="control-group">
+                <label for="separator-preset" data-i18n="ui.separatorLabel">分隔符</label>
+                <select id="separator-preset">
+                  <!-- value 前綴 preset:／custom＝main.ts 映射 SeparatorConfig.kind -->
+                  <option value="preset:|" selected data-i18n="separatorPreset.bar">豎線 |</option>
+                  <option value="preset:›" data-i18n="separatorPreset.arrow">箭頭 ›</option>
+                  <option value="preset:·" data-i18n="separatorPreset.middot">中點 ·</option>
+                  <option value="preset: " data-i18n="separatorPreset.space">空格</option>
+                  <option value="custom" data-i18n="separatorPreset.custom">自訂…</option>
+                </select>
+                <!-- main.ts 依 preset 選項顯隱此列（選 custom 才顯示、才進 tab 序） -->
+                <div class="control-subfield" id="separator-custom-field" hidden>
+                  <label for="separator-custom" data-i18n="ui.separatorCustomLabel">自訂分隔符（≤8 字元，僅 plain 模式）</label>
+                  <input type="text" id="separator-custom" maxlength="8" autocomplete="off" spellcheck="false" />
+                </div>
+              </div>
+
+              <!--
+                powerlineArrow（PLAN §D1 gating 條件表；config.ts
+                BuilderConfig.powerlineArrow，v2 預設 false）：段間是否 emit
+                powerline 箭頭（PUA 字元，需終端安裝相容特殊字型方能正確顯示——
+                06a 移除內建字型資產後，此為進階選項，見下方 build 產物字型
+                資產零殘留檢查）。未勾＝色塊直接相接（resolve.ts／emit-bash／
+                emit-ps1 補右側一格 padding 防黏連）；勾選＝完整 v1 語意
+                （箭頭＋lastArrowCap 收尾、不套 padding）。plain 模式無意義，
+                main.ts 於非 powerline 時停用。「需字型支援」警語常駐顯示
+                （不待勾選才出現）：讓使用者在勾選前就知道字型前提，避免勾了
+                才在終端看到豆腐，經 aria-describedby 關聯。
+              -->
+              <div class="control-group">
+                <label class="inline-choice">
+                  <input type="checkbox" id="powerline-arrow" aria-describedby="powerline-arrow-hint" />
+                  <span data-i18n="ui.powerlineArrowLabel">Powerline 箭頭</span>
+                </label>
+                <p class="control-hint" id="powerline-arrow-hint" data-i18n="ui.powerlineArrowHint">
+                  需終端安裝支援此符號的特殊字型，否則箭頭會顯示為方塊或亂碼。
+                </p>
+              </div>
+
+              <!--
+                lastArrowCap（PLAN Q1，預設 true）：powerline 末段是否補收尾
+                箭頭。plain 模式無意義，main.ts 於 plain 時停用；D1 gating
+                （PLAN §D1 gating 條件表）：powerlineArrow=false 時本控件本身
+                即無效（不 emit cap），main.ts 一併停用（disabled = !powerline
+                || !config.powerlineArrow）。
+              -->
+              <div class="control-group">
+                <label class="inline-choice">
+                  <input type="checkbox" id="last-arrow-cap" checked />
+                  <span data-i18n="ui.lastArrowCapLabel">Powerline 末段補收尾箭頭</span>
+                </label>
+              </div>
+
+              <!--
+                settings.json 腳本路徑（PLAN 產生器契約 11）：使用者填腳本安裝
+                路徑，main.ts 據此組 settings 片段的 command。
+              -->
+              <div class="control-group">
+                <label for="settings-path" data-i18n="ui.settingsPathLabel">settings.json 內的腳本路徑</label>
+                <input
+                  type="text"
+                  id="settings-path"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="~/.claude/statusline.sh"
+                />
+              </div>
+            </div>
+
+            <!--
+              D1「全段預設色＋powerline＋無箭頭」無色塊邊界提示（PLAN §D1
+              條件表末句）：powerline 模式、箭頭未開、且所有已啟用 segment
+              皆為終端預設色時，相鄰色塊間無箭頭轉場亦無背景色差，無法辨識
+              段落邊界。main.ts 依此組合條件顯隱（hidden 屬性，同
+              #separator-custom-field／色選 panel 慣例）——刻意**不**走 live
+              region：此為隨 config 而定的持續狀態提示，非一次性事件，逐次
+              commitConfig 都重算會流於頻繁播報（違反「live region 不得
+              spam」），故採常駐可視/可讀節點、切 hidden 決定是否進 a11y tree。
+            -->
+            <p class="control-hint" id="powerline-no-boundary-hint" hidden data-i18n="ui.noBoundaryHint">
+              目前所有已啟用的 segment 皆使用終端預設色、且未開啟 Powerline
+              箭頭：相鄰色塊將無法區分邊界，建議開啟箭頭或為部分 segment
+              指定顏色。
+            </p>
+
+            <!--
+              全域播報 live region（常駐、sr-only）：mode 切換的「顏色語意
+              翻轉」提醒、套用模板批次結果等非「複製成功」類播報走此區。
+              sr-only 以 clip 隱藏＝仍在 a11y tree（非 display:none/hidden），
+              符合「live region 須常駐」不變量。
+            -->
+            <div role="status" aria-live="polite" id="global-live-status" class="sr-only"></div>
+          </section>
+        </div>
+        <!-- /.builder-columns__settings（設定欄） -->
+      </div>
+      <!-- /.builder-columns（三欄 wrapper） -->
+
+      <!--
+        T5.9（(internal design doc) §D3-R4「隱藏池」，
+        依賴 T5.8）：停用段完整控件列（buildSegmentRow 產出的 <li>，含
+        排序鈕／配色／前綴／閾值／列指派等）之隱藏池——`hidden` 屬性
+        （經 src/style.css reset 規則等同 display:none）＋
+        aria-hidden="true" 雙重確保退出版面與 a11y tree；main.ts **不銷毀**
+        搬入的 <li>（節點重用鐵律：監聽器不重綁、閾值編輯器展開態等純
+        DOM 態不重置），重啟用時原節點搬回列群組容器（clamp 落點語意見
+        row-select.ts clampReenableRow）。初始建構時（buildSegmentRows）
+        全部段先進此池，再由 layoutSegmentContainers 依 enabled 狀態搬出
+        啟用段。DOM 位置刻意置於 `<main>` 內、三欄 wrapper 之外（隱藏元素
+        不參與 grid 版面，位置對視覺無影響；獨立掛點降低與三欄 grid 欄位
+        自動分派的耦合，三欄本身不指名 grid-area，本節點以
+        `hidden`/`display:none` 天然退出 grid 生成流程，無須額外處理）。
+        sprint 15 T2.1：grid 已自 `<main>` 下移到 `.builder-columns`，本
+        節點成為 grid 之外的一般 block 子節點——上述「不參與版面」的性質
+        由 `hidden` 承擔，與 grid 掛在哪一層無關，故位置與寫法皆不需變動。
+      -->
+      <ul class="segment-hidden-pool" id="segment-hidden-pool" hidden aria-hidden="true"></ul>
+
+      <!--
+        T4.1（(internal design doc) §D4 A-1／A-3，取代
+        T5.8 的 .builder-columns__aside 右欄定位）：產出腳本 dialog 本體。
+        sprint 15 T2.1 起「即時預覽」已復位為 `<main>` 直接子節點的全寬
+        頂帶（見 `#preview-section` 節點自身註解）；本 dialog 掛點（`<main>`
+        內、三欄 wrapper 之外）與內容不受影響。
+
+        T4.2（PLAN §D4 A-2）：產出腳本收斂為單一「產出腳本」鈕（頂帶右端
+        #output-dialog-open）開啟下方原生 `<dialog>`，stacked 三
+        區塊（不做分頁——tab 元件非 `<dialog>` 原生能力，且 stacked 保留
+        bash/ps1 並列對照可視性）。採 `showModal()`：明記取捨——開啟期間
+        頁面 inert、無法邊改 config 邊看產出碼；接受理由＝主迭代對象是
+        恆可見的頂帶預覽，產出碼屬設定完成後的終端步驟。`typeof
+        .showModal === 'function'` 特徵偵測 fallback（main.ts
+        openOutputDialog）僅設 `open` 屬性——供 jsdom／無 showModal 環境
+        （如舊版 iOS Safari）不炸；完整相容矩陣裁決留待 T4.4 spike。
+
+        焦點管理（main.ts wireOutputDialog）：開啟聚焦 dialog 內第一個
+        可聚焦元素、關閉**顯式**還原焦點至「產出腳本」鈕（不依賴瀏覽器
+        自動還原——理由見 main.ts 該函式文件）；Esc／backdrop click／
+        「關閉」鈕三種關閉來源統一經 `close` 事件還原，不分流。
+
+        #output-status（複製/下載播報 live region）常駐於 `<main>` 開頭
+        （見上，不隨本節點入 dialog）；#settings-path 仍留設定欄 config 區
+        （不入 dialog，dialog 開啟時 main.ts 已同步呼叫一次 refreshOutputs
+        保險重算，功能無礙）。
+      -->
+      <!-- ============ 產出腳本（dialog，T4.2） ============ -->
+      <dialog
+        class="tool-section output-dialog"
+        aria-labelledby="output-heading"
+        id="output-dialog"
+        data-testid="output-dialog"
+      >
+        <h2 id="output-heading" data-i18n="ui.outputHeading">產出腳本</h2>
+
+        <!--
+          三份產出各為具名 heading 區塊（<h3>）＋<pre>＋複製鈕＋下載鈕。
+          鈕的 accessible name 帶產物別（複製 bash／下載 PowerShell…）＝
+          三列同角色控件可辨。<pre tabindex="0">＝可鍵盤聚焦捲動的 code
+          區（WCAG 2.1.1），overflow-x auto。main.ts 設 <code> textContent
+          與下載 <a> 的 href（Blob URL：.ps1 帶 UTF-8 BOM／.sh 無，見
+          PLAN 產生器契約 8／10）。
+        -->
+        <div class="output-block" aria-labelledby="output-bash-heading">
+          <h3 id="output-bash-heading" class="output-block__heading" data-i18n="ui.outputBashHeading">bash 腳本（statusline.sh）</h3>
+          <div class="output-block__actions">
+            <button type="button" id="copy-bash" class="button-like button-like--secondary" data-i18n="ui.copyBash">複製 bash 腳本</button>
+            <!-- href 由 main.ts 設 Blob URL（初始無 href＝不具連結語意、不進 tab 序，同 gif-editor download-link） -->
+            <a id="download-bash" class="button-like button-like--secondary" download="statusline.sh" data-i18n="ui.downloadBash">下載 bash 腳本</a>
+          </div>
+          <pre class="output-block__code" id="output-bash" tabindex="0"><code></code></pre>
+        </div>
+
+        <div class="output-block" aria-labelledby="output-ps1-heading">
+          <h3 id="output-ps1-heading" class="output-block__heading" data-i18n="ui.outputPs1Heading">PowerShell 腳本（statusline.ps1）</h3>
+          <div class="output-block__actions">
+            <button type="button" id="copy-ps1" class="button-like button-like--secondary" data-i18n="ui.copyPs1">複製 PowerShell 腳本</button>
+            <a id="download-ps1" class="button-like button-like--secondary" download="statusline.ps1" data-i18n="ui.downloadPs1">下載 PowerShell 腳本</a>
+          </div>
+          <pre class="output-block__code" id="output-ps1" tabindex="0"><code></code></pre>
+        </div>
+
+        <div class="output-block" aria-labelledby="output-settings-heading">
+          <h3 id="output-settings-heading" class="output-block__heading" data-i18n="ui.outputSettingsHeading">settings.json 片段</h3>
+          <div class="output-block__actions">
+            <button type="button" id="copy-settings" class="button-like button-like--secondary" data-i18n="ui.copySettings">複製 settings 片段</button>
+            <a id="download-settings" class="button-like button-like--secondary" download="statusline.settings.json" data-i18n="ui.downloadSettings">下載 settings 片段</a>
+          </div>
+          <pre class="output-block__code" id="output-settings" tabindex="0"><code></code></pre>
+        </div>
+
+        <!--
+          顯式「關閉」鈕（PLAN 未明文要求，本 task 決策新增——見 T4.2
+          report「關鍵決策」）：Esc／backdrop 在無 showModal 的 fallback
+          （非真模態 <dialog>）路徑下皆不會原生關閉，本鈕提供不依賴
+          showModal 語意的關閉出口，且與 Esc／backdrop 共用同一
+          closeOutputDialog()→close 事件→焦點還原路徑，行為一致。置於
+          三份產出之後（不搶占「第一個可聚焦元素」聚焦落點）。
+        -->
+        <div class="output-dialog__footer">
+          <button
+            type="button"
+            id="output-dialog-close"
+            class="button-like button-like--secondary"
+            data-testid="output-dialog-close"
+            data-i18n="ui.close"
+          >關閉</button>
+        </div>
+      </dialog>
+    </main>
+
+    <footer>
+      <p>ClientKit — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>
+        © 2026 alan60910 · <a href="https://github.com/alan60910">GitHub</a> ·
+        <a href="https://github.com/alan60910/ClientKit/blob/main/LICENSE">MIT License</a>
+      </p>
+    </footer>
+
+    <!--
+      ============================================================
+      生成用 <template>（DOM 結構契約）。<template> 內容不進 a11y tree／
+      不渲染，僅供 main.ts clone。id/for/name/aria-controls 內的
+      __ID__／__PID__／__TID__ 為佔位 token：main.ts 每生成一實例即以
+      唯一 key 取代（保證 id 全域唯一、label[for]／aria-controls 成對
+      重寫）。詳細生成契約見本檔各 <template> 附近註解與 main.ts
+      instantiateTemplate（token 取代機制）。
+
+      sprint 15 T2.1 用語對照（下方各 <template> 註解沿用 sprint 09／14
+      的欄位代稱，未逐句改寫以免掩蓋真正的生成契約內容——請以本表換算，
+      節點查找一律走 id／data-testid，與欄位歸屬無關）：
+      ・「左欄目錄」＝本批的 **目錄欄**（`.builder-columns__catalog`
+        ／`#catalog-section`，四類分區與輕量常駐目錄項的家）。
+      ・「中欄」在生成契約語境中指**完整控件列所在處**＝本批的
+        **列區欄**（`.builder-columns__list`／`#list-column` 內的
+        `#segment-row-groups`）；若語境指預覽，則為**全寬頂帶**
+        （`#preview-section`）。
+      ・「右欄」＝sprint 14 的目錄＋已選擇同居欄，本批已拆為目錄欄與
+        列區欄兩個獨立捲動容器。
+      ============================================================
+    -->
+
+    <!--
+      T5.9（(internal design doc) §D3-R4
+      「transfer-list 互動（灰化留位）」）：左欄輕量常駐目錄項範本。
+      main.ts 生成契約：
+      1. 每 descriptor（依 SEGMENT_DESCRIPTORS 目錄定義序，不依
+         config.segments 陣列序——見 catalog.ts 文件）clone 一次，插入
+         data-category 對應的 <ol>（與 segment-row-group-template 共用
+         同一批四類 <ol>，僅內容物由完整控件列改為本輕量項）；一次性
+         建置、永不重排、無拖曳。
+      2. 設 <li data-segment-id>、把所有 __CID__ 換成 segment id。
+      3. .catalog-item__name 文字＝descriptor.label；checkbox
+         accessible name 由外層 <label for> 承接同一文字（識別該項）。
+      4. checkbox.checked＝seg.enabled；勾選＝啟用、取消＝停用——**啟停
+         唯一入口**（原 segment-row-template 內的 enable checkbox 已
+         移除，見下）。change 時 main.ts 呼叫 setSegmentEnabled：更新
+         config、原位切換 .catalog-item--enabled class＋
+         .catalog-item__badge 顯隱（不移動、不重建本 <li>），並把中欄
+         對應完整控件列於 #segment-row-groups ↔ #segment-hidden-pool
+         間搬移（節點重用）。事件處理後顯式再聚焦本 checkbox（連續勾選
+         N 段時焦點不跳失）。
+      5. T3.5（09-PLAN §D3 e2e 穩定錨點慣例，2026-07-17 拍板）：根 <li>
+         恆帶 data-testid="catalog-item"（T3.3 起本項可拖曳入中欄，e2e
+         需穩定錨點，不依賴 .catalog-item class／DOM 結構路徑）。
+      6. T3.3（(internal design doc) §D2′；TASKS.md T3.2／
+         T3.3，回饋 #5「目錄樣例值」）：compact 列新增 .catalog-item__hint
+         （未啟用態顯示、已啟用態 hidden——與 .catalog-item__badge 顯隱
+         恰好互斥，main.ts syncSegmentEnabledUi／buildCatalogItems 同步
+         切換）。文字內容由 main.ts 呼叫 sample-values.ts 的
+         getSampleValue(id, currentLocale()) 以 **textContent** 寫入
+         （禁走本檔 <template> token 取代／innerHTML 通道——該通道為
+         main.ts instantiateTemplate 的字串 innerHTML 替換機制，僅供
+         id/for/aria-controls 等結構性 token，樣例值屬使用者不可控但
+         仍應維持防注入紀律的動態文字，一律走 DOM textContent API）；
+         裝飾性、aria-hidden——與 .catalog-item__badge 同理不進 checkbox
+         accessible name（該名稱由 <label for> 承接 .catalog-item__name
+         單一來源，見上第 3 點）。
+    -->
+    <template id="catalog-item-template">
+      <li class="catalog-item" data-testid="catalog-item" data-segment-id="">
+        <label class="catalog-item__label" for="__CID__-catalog">
+          <input type="checkbox" class="catalog-item__checkbox" id="__CID__-catalog" />
+          <span class="catalog-item__name"></span>
+        </label>
+        <span class="catalog-item__hint" aria-hidden="true"></span>
+        <span class="catalog-item__badge" aria-hidden="true" hidden data-i18n="catalog.addedBadge">已加入</span>
+      </li>
+    </template>
+
+    <!--
+      segment 列範本（PLAN §Builder UI a11y 契約segment 清單條；T5.9 起
+      移住中欄，不再落在左欄四類分區）。main.ts 生成契約：
+      1. 每 descriptor clone 一次，初始一律先掛入 #segment-hidden-pool
+         （見其自身註解），再由 layoutSegmentContainers 依 enabled 狀態
+         搬至 #segment-row-groups 或留在池中。
+      2. 設 <li data-segment-id>、把所有 __ID__ 換成 segment id。
+      3. .segment-row__name 文字＝descriptor.label（T5.9 起純視覺標籤，
+         非任何控件的 accessible name 來源——啟停已移出本列，改左欄目錄
+         checkbox 承擔）。
+      4. 各控件 accessible name＝「段名 — 角色」：以 label 內 sr-only 的
+         .control-name-context 承載「<段名> — 」前綴（視覺只見角色字），
+         移位鈕／色選群組等無可見文字者由 main.ts 設 aria-label 全名。
+      5. 依 descriptor 裁剪：無 variants → 移除 .segment-row__variant-field；
+         category!=='percentage' → 移除 .segment-row__threshold-mount；
+         plain 模式 → 隱藏 .segment-row__fg-mount（powerline 才顯示）；
+         id ∉ SEGMENT_CATALOG.barEligibleIds → 移除 .segment-row__bar-field
+         （見 14.）；id ∉ SEGMENT_CATALOG.autoEligibleIds → 主色 picker 移除
+         「自動配色」radio（見色選範本契約與 6.，T5.2）。
+      6. 色選：clone #color-picker-template 進 .segment-row__color-mount
+         （base）與 .segment-row__fg-mount（fg-override）。T5.2（08-PLAN
+         §5）：base 色選僅 autoEligibleIds（model／effort）成員段以
+         allowAuto=true 建立（seg.color 可能為 {kind:'auto'}）；
+         fg-override 恆 allowAuto=false（不得出現 auto 態）。
+      7. 閾值：category==='percentage' → clone #threshold-editor-template
+         進 .segment-row__threshold-mount（桶色選皆 allowAuto=false）。
+      8. variant：有 variants → 以 descriptor.variants 填 <select> options。
+         T5.2：rate-5h／rate-7d 改選 'percent-reset' 時，main.ts
+         commitConfig → checkDuplicateResetHints 判定是否與對映 reset
+         獨立段（reset-5h／reset-7d）同列並開，是則經
+         #global-live-status 播報重複提示（見下方 11. 與 main.ts 文件）。
+      9. 啟用態：main.ts 依 seg.enabled 於 <li> 加/移除 .segment-row--enabled
+         （CSS 據此展開 .segment-row__controls）——T5.9 起由左欄目錄
+         checkbox 的 change handler 觸發，非本列自身控件。
+      10. T5.5（PLAN §排序與列指派 UX「上／下移鈕位置」）：上/下移鈕位於
+          .segment-row__enable-field 尾端（CSS margin-left:auto 靠右）；
+          不在 .segment-row__controls 塊內，故其顯隱不隨該塊自動收合——
+          main.ts 依 seg.enabled 顯式切換 .segment-row__move 的 hidden
+          屬性（僅啟用列顯示）。點擊或拖曳（限同列）後經
+          #segment-move-status 播報「〈段名〉移至第 N 列第 M 位（共
+          K）」；段為其列子序列首/末時對應鈕 disabled（維持可見）。
+          T5.11（PLAN Rev 6「拖曳統一插入制」）：拖曳（同列／跨列皆同）
+          改為插入語意（插目標段之前／之後，dragover 期間顯示 gap
+          placeholder），僅上/下移**按鈕**維持相鄰交換。
+      11. T5.4／T5.9：.segment-row__row-select（「顯示於第 N 列」）僅於
+          啟用段可見（隨 .segment-row__controls 一併收合，停用段其 row
+          值凍結不需顯示 select）；select 的 <option> 集合由 main.ts 於
+          分組或暫存列數實際變動時以 row-select.ts 之
+          computeRowSelectOptionOps 原地更新（枚舉含暫存列，見 T5.9
+          頂部「新增一列」按鈕），不重建 select 節點。T5.4 每段獨立
+          「新增一列」按鈕（.segment-row__add-row）已於 T5.9 移除。
+          T5.2：改列（本 select／拖曳／上下移鈕）皆經 commitConfig 收斂，
+          亦觸發 checkDuplicateResetHints 重新判定（見 8.）。
+      12. T5.11（PLAN §排序與列指派 UX Rev 6「中欄每段『移除』鈕」）：
+          .segment-row__remove——與左欄目錄取消走同一路徑
+          （main.ts setSegmentEnabled(id, false)）；顯隱同上/下移鈕（僅
+          啟用列顯示，main.ts 顯式切換 hidden）；aria-label＝main.ts 設
+          「<段名> — 從清單移除」；click 後焦點顯式移至左欄對應
+          checkbox（setSegmentEnabled 既有行為）＋
+          #segment-move-status 播報「<段名> 已從清單移除」。
+      13. T5.13（2026-07-11 使用者裁決 Rev 8）：.segment-row__enable-field
+          首位加 .segment-row__grip（⠿，aria-hidden 純裝飾，天然不進
+          tab 序）——僅視覺提示「此處可拖」，拖曳判定不變（li.draggable
+          ＋wireDragAndDrop 的 dragstart guard，見 main.ts）；同時
+          .segment-row__enable-field 整體 CSS user-select:none 消除段名
+          文字選取干擾（.segment-row__controls 內控件不受影響，前綴輸入
+          框等仍可選字）。
+      14. T5.1（(internal design doc) §5）：
+          .segment-row__bar——長條圖正交開關，限 barEligibleIds（見 5.）；
+          checked＝seg.bar===true。切開（false→true）時 main.ts
+          setSegmentBar：`seg.threshold===undefined` → 寫入該段預設模板
+          （context-remaining＝剩餘漸層、其餘百分比段＝限額漸層，見
+          threshold-editor-template 契約）＋同步該段 .threshold__template
+          之 value 為對應模板 id（避免面板顯示「（自訂）」與心智模型脫
+          節）；`seg.threshold` 已有值 → 保留不動。兩情形皆經
+          #global-live-status 播報。關閉（true→false）：threshold 不動
+          （bar 與 threshold 正交）。powerline 模式下 seg.bar===true 之段
+          （resolve.ts 停用 fgOverride 之同一判定範圍——僅該段，非全段）
+          main.ts 停用其 .segment-row__fg-mount 色選＋播報，切回 plain 或
+          該段 bar 關閉時恢復。
+      15. T3.5（09-PLAN §D3 e2e 穩定錨點慣例，2026-07-17 拍板）：根 <li>
+          帶 data-testid="segment-row"（e2e 段列查找錨點，取代
+          `li.segment-row` 結構 selector）；.segment-row__grip 帶
+          data-testid="segment-grip"（拖曳握把座標錨點）；
+          .segment-row__row-select 帶 data-testid="row-select"（select
+          指派座標錨點）。三者皆與 data-segment-id 併用，e2e 不再依賴
+          class 名稱（M4/M5 版面與文案改動不致使 selector 失準）。
+    -->
+    <template id="segment-row-template">
+      <li class="segment-row" data-testid="segment-row" data-segment-id="">
+        <div class="segment-row__enable-field">
+          <span class="segment-row__grip" data-testid="segment-grip" aria-hidden="true">⠿</span>
+          <span class="segment-row__name"></span>
+
+          <!-- T5.5：上/下移鈕移至此（enable-field 尾端，CSS margin-left:auto）；
+               僅啟用列顯示（main.ts 顯式切換 hidden，見上方 10.）。 -->
+          <div class="segment-row__field segment-row__move">
+            <button type="button" class="icon-button segment-row__move-up" aria-label="">
+              <span aria-hidden="true">↑</span>
+            </button>
+            <button type="button" class="icon-button segment-row__move-down" aria-label="">
+              <span aria-hidden="true">↓</span>
+            </button>
+          </div>
+
+          <!-- T5.11：移除鈕（見上方 12.）；僅啟用列顯示（main.ts 顯式切換 hidden）。 -->
+          <button type="button" class="icon-button segment-row__remove" aria-label="">
+            <span aria-hidden="true">✕</span>
+          </button>
+        </div>
+
+        <!-- 停用時 CSS 收合整塊（display:none＝退出 tab 序＋a11y tree，此處刻意，非 live region） -->
+        <div class="segment-row__controls">
+          <!--
+            T5.4（(internal design doc) §D2「列選擇
+            UI」；S7 spike 裁決見 sp7/RESULTS.md）：「顯示於第 N 列」select
+            （枚舉來源＝渲染列 ∪ 暫存列，main.ts 以 row-select.ts 純函式
+            計算的操作序列原地更新既有 <option>，不重建 select 節點——防
+            鍵盤焦點跳失）。T5.9：每段旁的獨立「新增一列」按鈕已移除
+            （改中欄頂部單一按鈕＋UI 暫存空列，S7「不進 select option」
+            裁決維持有效）。
+          -->
+          <div class="segment-row__field segment-row__row-field">
+            <label for="__ID__-row"><span class="control-name-context sr-only"></span><span data-i18n="segmentRow.rowFieldLabel">顯示於第 N 列</span></label>
+            <select class="segment-row__row-select" data-testid="row-select" id="__ID__-row"></select>
+          </div>
+
+          <div class="segment-row__field">
+            <label class="inline-choice">
+              <input type="checkbox" class="segment-row__icon" id="__ID__-icon" />
+              <span class="control-name-context sr-only"></span><span data-i18n="segmentRow.iconFieldLabel">顯示文字</span>
+            </label>
+          </div>
+
+          <div class="segment-row__field">
+            <label for="__ID__-prefix"><span class="control-name-context sr-only"></span><span data-i18n="segmentRow.prefixFieldLabel">前綴</span></label>
+            <input
+              type="text"
+              class="segment-row__prefix"
+              id="__ID__-prefix"
+              maxlength="8"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+
+          <!-- 僅有 variants 的段（cwd／rate-5h／rate-7d）保留；其餘由 main.ts 移除 -->
+          <div class="segment-row__field segment-row__variant-field">
+            <label for="__ID__-variant"><span class="control-name-context sr-only"></span><span data-i18n="segmentRow.variantFieldLabel">顯示樣式</span></label>
+            <select class="segment-row__variant" id="__ID__-variant"></select>
+          </div>
+
+          <!-- base 顏色（plain=前景／powerline=背景，語意隨 mode，值不重映射）；main.ts clone 色選進此 -->
+          <div class="segment-row__field segment-row__color-mount" data-color-role="base"></div>
+
+          <!-- powerline 前景覆寫（auto-fg override）；plain 模式 CSS 隱藏；main.ts clone 色選進此 -->
+          <div class="segment-row__field segment-row__fg-mount" data-color-role="fg-override"></div>
+
+          <!--
+            T5.1（08-PLAN §5）：長條圖（bar）正交開關，限 barEligibleIds
+            （見上方模板契約 5./14.）；非合格段由 main.ts 整組移除。
+          -->
+          <div class="segment-row__field segment-row__bar-field">
+            <label class="inline-choice">
+              <input type="checkbox" class="segment-row__bar" id="__ID__-bar" />
+              <span class="control-name-context sr-only"></span><span data-i18n="segmentRow.barFieldLabel">顯示長條圖</span>
+            </label>
+          </div>
+
+          <!-- 百分比段的閾值編輯器掛載點；非百分比段由 main.ts 移除 -->
+          <div class="segment-row__threshold-mount" data-threshold-mount></div>
+        </div>
+      </li>
+    </template>
+
+    <!--
+      T5.3（(internal design doc) §排序與列指派 UX
+      「列群容器生命週期」）：列群組容器範本——啟用段依渲染列分組呈現，
+      每列一個與四類分區等價的地標／標題結構（<section aria-labelledby>
+      ＋「第 N 列」標題），保住 SPEC「大量項目 skip 機制」不變量：SR 可
+      逐列跳達。main.ts 生成契約：
+      1. 每一渲染列（0-index，正規化後恆連續 0..N-1）clone 一次，__RID__
+         換成該列穩定 key（main.ts 以列索引產生，如 row-0／row-1……），
+         插入 #segment-row-groups。
+      2. .segment-section__heading 文字＝main.ts 設「第 N 列」（N＝渲染
+         列序，1 起算）。
+      3. <ol> 承載該列啟用段既有 <li>（appendChild 搬入，非新建；列內
+         順序＝config.segments 陣列序＝視覺順序）。
+      4. 容器數量隨渲染列數增減動態調整（main.ts 建立／銷毀流程）；銷毀
+         前若容器內仍有 <li>（理論上不會，見 main.ts 防禦註解）先搬離
+         再移除 <section>，絕不連 <li> 一併丟棄。
+      5. T5.11（PLAN §排序與列指派 UX Rev 6「整列刪除」）：標題旁
+         .segment-row-group__delete-trigger——語意＝該列全部段停用（li
+         收隱藏池、左欄目錄項恢復可勾）；click → 兩段式 inline 確認（見
+         main.ts wireRowDeleteButton 文件：trigger 隱、
+         .segment-row-group__delete-confirm 顯，焦點落於「取消」鈕──
+         安全預設，避免連按 Enter 誤刪）；confirm 鈕 click → 批次停用＋
+         單次 commitConfig（避免 N 次 relayout）＋播報「第 N 列已刪除，
+         M 個段已回到目錄」＋焦點移至 #add-pending-row（不落 body）；
+         cancel 鈕 click → 收合confirm、trigger 復顯＋回焦 trigger。
+         僅剩最後一個真實列時 trigger disabled（維持可見，防清空，見
+         main.ts refreshRowDeleteButtons）。
+      6. T1.7（(internal design doc) §D1「UI」）：逐列
+         分隔符控件——結構比照全域 #separator-preset／#separator-custom
+         （見上方 global-controls），多一個「（全域）」選項（value=
+         "inherit"，預設選中＝該列未覆寫、沿用全域分隔符）。main.ts
+         wireRowSeparatorControl 生成契約：change 寫回
+         config.rowSeparators[該列 real index]（null＝inherit）；
+         powerline 模式下整組（select＋custom 子欄）停用（僅 plain 模式
+         逐列覆寫生效，見 config.ts BuilderConfig.rowSeparators 文件），
+         **保值不清除**。
+      7. T3.5（09-PLAN §D3 e2e 穩定錨點慣例，2026-07-17 拍板）：根
+         <section> 帶 data-testid="row-group"＋data-row-index（**顯示
+         編號**，main.ts createRowGroupContainer 建立時先烙印初值、隨後
+         每次 refreshRowNumbering 同步——與 .segment-section__heading
+         文字同一組數值，供 e2e 序數斷言讀取，不必比對 i18n 可見文字）。
+         .segment-row-group__separator-preset 帶
+         data-testid="row-separator-preset"（e2e 快照讀取每列 separator
+         覆寫狀態：其 value 為 'inherit'/'preset:X'/'custom' 等程式碼態
+         值，非可見文字，e2e 讀取不受 M5 i18n 影響）。
+    -->
+    <template id="segment-row-group-template">
+      <section
+        class="segment-section segment-row-group"
+        data-testid="row-group"
+        data-row-index=""
+        aria-labelledby="__RID__-heading"
+      >
+        <div class="segment-row-group__heading-row">
+          <h2 id="__RID__-heading" class="segment-section__heading"></h2>
+          <div class="segment-row-group__delete-field">
+            <button type="button" class="button-like button-like--secondary segment-row-group__delete-trigger"></button>
+            <div class="segment-row-group__delete-confirm" hidden>
+              <button type="button" class="button-like button-like--secondary segment-row-group__delete-confirm-btn" data-i18n="rowGroup.deleteConfirmText">確認刪除</button>
+              <button type="button" class="button-like button-like--secondary segment-row-group__delete-cancel-btn" data-i18n="rowGroup.deleteCancelText">取消</button>
+            </div>
+          </div>
+        </div>
+        <div class="segment-row-group__separator-field control-group">
+          <label for="__RID__-separator-preset" data-i18n="rowGroup.separatorFieldLabel">本列分隔符</label>
+          <select
+            id="__RID__-separator-preset"
+            class="segment-row-group__separator-preset"
+            data-testid="row-separator-preset"
+          >
+            <!-- value 前綴 preset:／custom＝main.ts 映射 SeparatorConfig.kind；inherit＝還原繼承（寫回 null） -->
+            <option value="inherit" selected data-i18n="separatorPreset.inherit">（全域）</option>
+            <option value="preset:|" data-i18n="separatorPreset.bar">豎線 |</option>
+            <option value="preset:›" data-i18n="separatorPreset.arrow">箭頭 ›</option>
+            <option value="preset:·" data-i18n="separatorPreset.middot">中點 ·</option>
+            <option value="preset: " data-i18n="separatorPreset.space">空格</option>
+            <option value="custom" data-i18n="separatorPreset.custom">自訂…</option>
+          </select>
+          <!-- main.ts 依 preset 選項顯隱此列（選 custom 才顯示、才進 tab 序） -->
+          <div class="control-subfield segment-row-group__separator-custom-field" hidden>
+            <label for="__RID__-separator-custom" data-i18n="rowGroup.customSeparatorLabel">自訂分隔符（≤8 字元）</label>
+            <input
+              type="text"
+              id="__RID__-separator-custom"
+              class="segment-row-group__separator-custom"
+              maxlength="8"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+        <ol class="segment-list" id="__RID__-list" data-row-group="__RID__"></ol>
+      </section>
+    </template>
+
+    <!--
+      T5.9（(internal design doc) §D3-R4「新增一列
+      （第三修）」）：UI 暫存空列容器範本——純視覺標籤＋提示文字，恆不
+      持有任何 <li>（段一旦被指派入此列即成為真實渲染列，改由
+      segment-row-group-template 承載），故不需 aria-labelledby 地標
+      結構（無可跳達內容，避免 SR 標題導覽時徒增空區）。
+
+      T5.14（PLAN Rev 11「暫存列位置制」）：main.ts 依 rowSlots 位置制把
+      本範本實例**插進 #segment-row-groups 內、正確位置**（可落在真實列
+      <section> 之間，見 renderPendingRowContainers）——每次 slots 變動即
+      移除既有全部 .segment-pending-row 節點後重繪（本容器不持有任何段
+      <li>／監聽器，整批重繪不違節點重用鐵律）；.segment-section__heading
+      文字＝main.ts 設「第 N 列」（N＝該 pending slot 位置＋1，即顯示編號）。
+
+      T5.11／T5.14（PLAN §排序與列指派 UX Rev 6「整列刪除」／Rev 11「點哪
+      刪哪」）：標題旁 .segment-pending-row__delete——純 placeholder 移除、
+      **免確認**（該列本無任何段，刪除即 removeSlotAt 於**被點擊者的 slot
+      位置**移除，非「移除最高編號」）；click → main.ts removePendingRow：
+      重繪暫存列容器＋刷新 select 枚舉／顯示編號＋播報「空列已移除」＋
+      焦點移至 #add-pending-row（不落 body）。
+
+      T3.5（09-PLAN §D3 e2e 穩定錨點慣例，2026-07-17 拍板）：根 <div> 帶
+      data-testid="pending-row-group"＋data-row-index（該 pending slot
+      顯示編號，main.ts renderPendingRowContainers 重繪時寫入，與標題
+      文字同一組數值，供 e2e 序數斷言）；.segment-pending-row__delete
+      帶 data-testid="pending-row-delete"（e2e 刪除鈕錨點）。
+    -->
+    <template id="segment-pending-row-template">
+      <div class="segment-section segment-pending-row" data-testid="pending-row-group" data-row-index="">
+        <div class="segment-pending-row__heading-row">
+          <h2 class="segment-section__heading"></h2>
+          <button
+            type="button"
+            class="button-like button-like--secondary segment-pending-row__delete"
+            data-testid="pending-row-delete"
+          ></button>
+        </div>
+        <p class="segment-section__desc segment-pending-row__hint" data-i18n="rowGroup.pendingRowHint">
+          空列——用各段「顯示於第 N 列」選單放入段。
+        </p>
+      </div>
+    </template>
+
+    <!--
+      色選範本（PLAN §D6＝SP-6 pattern B：16 基本色 radio＋0–255 spinbutton；
+      truecolor 用原生 <input type="color">）。__PID__＝色選實例唯一 key。
+      main.ts 生成契約：
+      - .color-picker__legend 文字＝「<段名> — 顏色／前景色」（base／
+        fg-override）或閾值桶名（「<段名> 閾值 0–9%」…），以 .control-name-context
+        承載完整識別。
+      - 三態 mode radio（default／ansi256／truecolor）＝終端預設有自身可及
+        名稱「終端預設」；選 default 隱藏兩 panel、選 ansi256／truecolor
+        顯示對應 panel（hidden 屬性切換即可，非 live region）。
+      - T5.2（08-PLAN §5）：第四態 .color-picker__mode-auto-field（value=
+        "auto"，可及名稱「自動配色」）——僅 autoEligibleIds 成員段的主色
+        picker 保留（main.ts 依 allowAuto 旗標移除非合格 picker 的本節
+        點，見下方 main.ts 生成契約與其自身文件）；選中回呼
+        {kind:'auto'}（SegmentColor 第四態，非 ColorSpec 三態封閉），無
+        對應面板（不著色、不 hidden 切換）。
+      - ANSI 面板（pattern B）：main.ts 於 [data-swatch-container] 生成 16
+        個基本色 radio（name=__PID__-swatch，accessible name＝color.ts
+        ansi256SwatchName(i)＝「ANSI n #hex」，swatch ≥24×24）；spinbutton
+        為自訂 role=spinbutton（原生 number 無法承載 aria-valuetext），
+        main.ts 綁上/下箭頭＋數字直入，更新 aria-valuenow／aria-valuetext
+        （＝ansi256SwatchName）＋ .color-spinbutton__value 顯示。
+      - .color-swatch--preview 為即時色 chip（aria-hidden，裝飾）。
+    -->
+    <template id="color-picker-template">
+      <fieldset class="color-picker" data-picker-id="__PID__">
+        <legend class="color-picker__legend"><span class="control-name-context"></span></legend>
+
+        <div class="color-picker__modes">
+          <label class="inline-choice">
+            <input type="radio" name="__PID__-mode" class="color-picker__mode" value="default" checked />
+            <span data-i18n="colorPicker.modeDefault">終端預設</span>
+          </label>
+          <label class="inline-choice">
+            <input type="radio" name="__PID__-mode" class="color-picker__mode" value="ansi256" />
+            <span data-i18n="colorPicker.modeAnsi256">ANSI 256 色</span>
+          </label>
+          <label class="inline-choice">
+            <input type="radio" name="__PID__-mode" class="color-picker__mode" value="truecolor" />
+            <span data-i18n="colorPicker.modeTruecolor">自訂顏色</span>
+          </label>
+          <!--
+            T5.2（(internal design doc) §5「auto 配色
+            選項」）：第四態，恆存在於本範本；main.ts createColorPicker 依
+            呼叫端 allowAuto 旗標決定去留——僅 autoEligibleIds（model／
+            effort）段的主色 picker 保留（其餘 picker，含全部段 fgOverride
+            與閾值桶色選，一律於實例化時移除本節點，見其文件）。
+          -->
+          <label class="inline-choice color-picker__mode-auto-field">
+            <input type="radio" name="__PID__-mode" class="color-picker__mode color-picker__mode--auto" value="auto" />
+            <span data-i18n="colorPicker.modeAuto">自動配色</span>
+          </label>
+        </div>
+
+        <div class="color-picker__panel color-picker__ansi" data-mode-panel="ansi256" hidden>
+          <!--
+            main.ts 生成 16 個 <label class="color-swatch"><input type="radio"
+            name="__PID__-swatch" value="{0..15}" /><span aria-hidden></span></label>，
+            radio accessible name＝ansi256SwatchName(i)。此容器初始空。
+          -->
+          <div class="color-swatches" data-swatch-container role="group" aria-label="基本 16 色" data-i18n-attr="aria-label:colorPicker.swatchGroupLabel"></div>
+
+          <div class="color-spinbutton-field">
+            <!-- T5.4（(internal design doc) §D5 A-3）：
+                 color-picker 示範面靜態文案（messages.ts colorPicker
+                 域）——label 純文字葉節點走 data-i18n；兩步進鈕另有裝飾用
+                 <span aria-hidden> 子節點，aria-label 改走
+                 data-i18n-attr（僅動屬性、不動子樹）。 -->
+            <span class="color-spinbutton-field__label" id="__PID__-index-label" data-i18n="colorPicker.ansiIndexLabel">ANSI 索引（0–255）</span>
+            <div class="color-spinbutton">
+              <button
+                type="button"
+                class="color-spinbutton__step color-spinbutton__dec"
+                tabindex="-1"
+                aria-label="索引減 1"
+                data-i18n-attr="aria-label:colorPicker.indexDecrement"
+              >
+                <span aria-hidden="true">−</span>
+              </button>
+              <span
+                class="color-spinbutton__control"
+                id="__PID__-index"
+                role="spinbutton"
+                tabindex="0"
+                aria-labelledby="__PID__-index-label"
+                aria-valuemin="0"
+                aria-valuemax="255"
+                aria-valuenow="0"
+                aria-valuetext="ANSI 0 #000000"
+              >
+                <span class="color-spinbutton__value" aria-hidden="true">0</span>
+              </span>
+              <button
+                type="button"
+                class="color-spinbutton__step color-spinbutton__inc"
+                tabindex="-1"
+                aria-label="索引加 1"
+                data-i18n-attr="aria-label:colorPicker.indexIncrement"
+              >
+                <span aria-hidden="true">＋</span>
+              </button>
+            </div>
+            <span class="color-swatch color-swatch--preview" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <div class="color-picker__panel color-picker__truecolor" data-mode-panel="truecolor" hidden>
+          <label for="__PID__-hex"><span class="control-name-context"></span><span data-i18n="colorPicker.hexLabel">自訂顏色（十六進位）</span></label>
+          <input type="color" class="color-picker__native" id="__PID__-hex" value="#000000" />
+        </div>
+      </fieldset>
+    </template>
+
+    <!--
+      閾值編輯器範本（PLAN §Builder UI a11y 契約閾值編輯器條）。__TID__＝
+      閾值實例唯一 key。main.ts 生成契約：
+      - disclosure：.threshold__toggle 為 <button aria-expanded>＋
+        aria-controls 指向 .threshold__panel；預設收合（aria-expanded
+        false、panel hidden），展開才進 tab 序；展開/收合須播報＋焦點管理。
+      - 模板 <select>：選項已列（含「（自訂）」空值＋6 模板，T3.5／T5.1
+        增「限額漸層」／「剩餘漸層」）；套用＝批次操作，main.ts 經
+        #global-live-status 播報「已套用 <模板>，10 段顏色已更新」；套用後
+        逐桶改 → select 回「（自訂）」。長條圖（bar）切開時 main.ts 亦可能
+        程式化套用其一並同步本 select（見 segment-row-template 契約 14.）。
+      - 10 桶：main.ts 於 [data-bucket-container] 生成 10 列，每列
+        label（文字「0–9%」…「90–100%」，以 .control-name-context 承載
+        「<段名> 閾值 」識別前綴）＋ clone #color-picker-template（桶色）。
+    -->
+    <template id="threshold-editor-template">
+      <div class="threshold" data-threshold-id="__TID__">
+        <button
+          type="button"
+          class="threshold__toggle"
+          id="__TID__-toggle"
+          aria-expanded="false"
+          aria-controls="__TID__-panel"
+        >
+          <span class="control-name-context sr-only"></span><span data-i18n="threshold.toggleLabel">閾值變色設定</span>
+        </button>
+        <div class="threshold__panel" id="__TID__-panel" hidden>
+          <div class="threshold__template-field">
+            <label for="__TID__-template"><span class="control-name-context sr-only"></span><span data-i18n="threshold.templateFieldLabel">套用模板</span></label>
+            <select class="threshold__template" id="__TID__-template">
+              <option value="" selected data-i18n="threshold.customOption">（自訂）</option>
+              <!-- T5.4（(internal design doc) §D5 A-3）：
+                   6 模板名收斂為單一 messages.ts 事實來源
+                   （thresholdTemplateLabel，消本檔與 main.ts 原
+                   THRESHOLD_TEMPLATE_LABELS 常數表的雙寫）——data-i18n
+                   點分路徑取值；靜態字面對齊 zh-Hant 字典之值，clone 後
+                   main.ts 呼叫 applyI18n 依當下語言覆寫（見 buildThreshold
+                   Editor／i18n-dom.ts）。 -->
+              <option value="traffic" data-i18n="thresholdTemplateLabel.traffic">交通號誌（綠→黃→紅）</option>
+              <option value="traffic-inv" data-i18n="thresholdTemplateLabel.traffic-inv">反向交通號誌（紅→綠）</option>
+              <option value="cool-warm" data-i18n="thresholdTemplateLabel.cool-warm">冷暖（藍→紅）</option>
+              <option value="mono-fade" data-i18n="thresholdTemplateLabel.mono-fade">單色漸亮</option>
+              <!-- T3.5／T5.1（(internal design doc) §3／§5）：
+                   長條圖 bar 切開時的兩套預設模板（main.ts pickDefaultThresholdTemplateId：
+                   context-remaining 用剩餘漸層、其餘百分比段用限額漸層）；亦可手動套用。 -->
+              <option value="limit-gradient" data-i18n="thresholdTemplateLabel.limit-gradient">限額漸層（按用量）</option>
+              <option value="remaining-gradient" data-i18n="thresholdTemplateLabel.remaining-gradient">剩餘漸層（逆序）</option>
+            </select>
+          </div>
+          <!-- main.ts 生成 10 桶（label「0–9%」…＋色選 clone）；初始空 -->
+          <div class="threshold__buckets" data-bucket-container></div>
+        </div>
+      </div>
+    </template>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

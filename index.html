@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClientKit</title>
+    <meta
+      name="description"
+      content="純靜態瀏覽器端工具合集：APNG 轉 GIF、GIF 編輯、影片格式轉換"
+    />
+    <!-- 讓瀏覽器在任何 CSS 套用前就能為深色偏好使用者選深色預設畫布（配合下方換頁白閃防護 style）。 -->
+    <meta name="color-scheme" content="light dark" />
+    <link rel="stylesheet" href="./src/style.css" />
+    <!--
+      入口頁「零框架 JS」唯一例外（(internal design doc)
+      §D4；(internal design doc) 里程碑 2 擴充；
+      scripts/verify-dist-checks.mjs 的 ENTRY_ALLOWED_INLINE_SCRIPTS 白名單需與
+      本段逐字同步，改這裡務必同步更新該白名單）：零依賴、零網路請求。
+
+      上半段為四個工具頁 head 也有的 FOUC 防護（byte-identical，先讀
+      localStorage 的手動切換紀錄補上 data-theme，避免重整時先閃一下深色
+      UA 預設）；下半段是入口頁專屬的 toggle 鈕監聽＋外部事件即時同步，因
+      入口頁零框架 JS、不能 import src/theme.ts（那需要 module 型別的
+      script，會被 scripts/verify-dist.mjs 判定為外部/屬性化 script 而擋
+      下），故以純 vanilla JS 併入同一支 inline script（與 src/theme.ts
+      邏輯對齊但各自獨立維護，見 theme.ts 檔頭說明）。button 節點於 body
+      解析後才存在，故監聽（click／matchMedia change／storage）皆掛在
+      DOMContentLoaded。sync() 內同步補設 aria-label，呼應 src/theme.ts
+      syncToggleButton 的同一防禦性理由（可及名稱不依賴按鈕目前的純文字
+      內容，日後鈕面改純圖示也不失去可及名稱）。
+
+      matchMedia change／storage 這兩段監聽對應 src/theme.ts
+      initThemeSync 的同一組職責：OS 系統偏好變更、或其他分頁寫入/清除
+      localStorage，皆即時重同步 toggle 鈕與 `data-theme`（storage 分支
+      不信任 event 自帶的 newValue，重讀 localStorage 本身；key 為 null
+      或本頁主題 key 才處理，clear() 全清與單鍵 removeItem() 兩形皆
+      涵蓋）；matchMedia 監聽掛載本身在 Safari <14（無 addEventListener）
+      會拋錯，try/catch 吞下後即時跟隨靜默失效，首次載入仍正確，比照
+      專案降級哲學不補 fallback。這整段皆受本段開頭「逐字同步」規則約束，
+      改動需同步更新 verify-dist-checks.mjs 白名單。
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('clientkit-theme');
+          if (t === 'dark' || t === 'light')
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+
+      document.addEventListener('DOMContentLoaded', function () {
+        try {
+          var button = document.querySelector('.theme-toggle');
+          if (!button) return;
+
+          function isEffectiveDark() {
+            try {
+              var stored = localStorage.getItem('clientkit-theme');
+              if (stored === 'dark' || stored === 'light') return stored === 'dark';
+            } catch (e) {}
+            try {
+              return window.matchMedia('(prefers-color-scheme: dark)').matches;
+            } catch (e) {
+              return false;
+            }
+          }
+
+          function sync() {
+            button.setAttribute('aria-pressed', String(isEffectiveDark()));
+            button.setAttribute('aria-label', '深色模式切換');
+          }
+
+          sync();
+          button.addEventListener('click', function () {
+            var next = isEffectiveDark() ? 'light' : 'dark';
+            try {
+              localStorage.setItem('clientkit-theme', next);
+            } catch (e) {}
+            document.documentElement.setAttribute('data-theme', next);
+            sync();
+          });
+
+          try {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+              sync();
+            });
+          } catch (e) {}
+
+          try {
+            window.addEventListener('storage', function (event) {
+              if (event.key !== 'clientkit-theme' && event.key !== null) return;
+              var stored = null;
+              try {
+                stored = localStorage.getItem('clientkit-theme');
+              } catch (e) {}
+              if (stored === 'dark' || stored === 'light') {
+                document.documentElement.setAttribute('data-theme', stored);
+              } else {
+                document.documentElement.removeAttribute('data-theme');
+              }
+              sync();
+            });
+          } catch (e) {}
+        } catch (e) {}
+      });
+    </script>
+    <style>
+      /* 防換頁白閃：首繪前先給 html 主題底色（色值須與 src/style.css 的 --bg／--dark-bg 保持同步） */
+      html { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme='light']) { background-color: #0f1419; }
+      }
+      html[data-theme='dark'] { background-color: #0f1419; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>ClientKit</h1>
+      <p>純靜態、瀏覽器端執行的小工具合集，無需安裝、無需上傳。</p>
+      <button type="button" class="theme-toggle" aria-pressed="false">深色模式切換</button>
+    </header>
+    <main>
+      <!--tool-list-->
+    </main>
+    <footer>
+      <p>ClientKit — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>
+        © 2026 alan60910 · <a href="https://github.com/alan60910">GitHub</a> ·
+        <a href="https://github.com/alan60910/ClientKit/blob/main/LICENSE">MIT License</a>
+      </p>
+    </footer>
+  </body>
+</html>

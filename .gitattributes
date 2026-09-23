@@ -1,0 +1,28 @@
+# 全域 EOL 基線：一般文字檔依內容啟發式判斷、入庫正規化為 LF，checkout 依平台
+# 慣例還原（Windows 端受 core.autocrlf 控制）；下方特定規則於後、依 gitattributes
+# 「後行優先」原則覆寫此基線
+* text=auto
+
+# Shell 腳本一律 LF checkout（Unix 可執行前提；防 core.autocrlf=true 轉 CRLF）
+*.sh text eol=lf
+
+# 黃金比對 fixtures 為 byte-exact 契約：禁止任何 EOL／內容轉換
+# （emit-bash.test.ts 斷言黃金檔皆 LF、無 CR；emit 輸出與檔案逐 byte 比對）
+tools/statusline-builder/__golden__/** -text
+
+# statusline stdin fixtures 為逐行 byte-exact 讀取契約：入庫與 checkout 皆固定 LF
+*.jsonl eol=lf
+
+# 簽入二進位資產顯式標記，不得僅賴 text=auto 內容啟發式誤判（防轉碼／轉換破壞）：
+# PNG 截圖／參考圖（06／07／09 sprint UI 佐證與比對圖）
+*.png binary
+# GIF 為 gif-editor 測試 fixture
+*.gif binary
+# APNG 為 apng-to-gif 測試 fixture
+*.apng binary
+# MKV 為 video-converter 測試 fixture
+*.mkv binary
+# WebM 為 video-converter 測試 fixture
+*.webm binary
+
+

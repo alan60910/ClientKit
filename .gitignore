@@ -1,0 +1,10 @@
+node_modules/
+dist/
+public/vendor/
+
+
+
+
+# Claude Code 本機設定（不入 repo）
+.claude/
+

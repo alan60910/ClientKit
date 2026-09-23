@@ -1,0 +1,754 @@
+/* room-layout-planner 區域樣式；消費順序：src/style.css → 本檔（main.ts import）。
+   T5.4 起 props.css 的規則全數併入本檔（該檔留空殼）。 */
+
+/* ---- 本頁在地 token（--rlp- 前綴）---- */
+:root {
+  /* T5.1：地板不可與頁面底色同色（M5 回饋 5），故用字面 hex 而非
+     var(--surface-dim)；--rlp-outline 為房間外框／牆線／方塊虛線共用 */
+  --rlp-floor: #eef2f7;
+  --rlp-outline: #6b7280;
+  --rlp-wall: var(--border-strong);
+  --rlp-item-stroke: var(--fg);
+  --rlp-door: var(--link);
+  --rlp-swing: rgba(29, 78, 216, 0.15);
+  --rlp-ok: var(--fg-muted);
+  --rlp-touch: var(--border);
+  --rlp-focus: var(--link);
+
+  /* 警示色：字面 hex（非 --dark-* 間接層），對比對 #ffffff 真算，見 sp9/REPORT.md */
+  --rlp-warn: #b00020; /* 對比 #ffffff ≈7.33:1 */
+  --rlp-tight: #7a4f00; /* 對比 #ffffff ≈7.13:1 */
+  --rlp-collide: #8b0000; /* 對比 #ffffff ≈10.01:1 */
+}
+
+/* 深色情境（跟隨系統）：警示色字面 hex，對比對 --dark-bg #0f1419 真算 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --rlp-warn: #ff7b7b; /* 對比 #0f1419 ≈7.38:1 */
+    --rlp-tight: #ffc857; /* 對比 #0f1419 ≈12.03:1 */
+    --rlp-collide: #ff9e9e; /* 對比 #0f1419 ≈9.38:1 */
+    --rlp-floor: #1c2430; /* T5.1：比 --dark-bg #0f1419 亮一階 */
+    --rlp-outline: #8b95a5;
+  }
+}
+
+/* 深色情境（使用者手動切換）：須與上方 @media 區塊值同步 */
+:root[data-theme='dark'] {
+  --rlp-warn: #ff7b7b; /* 對比 #0f1419 ≈7.38:1 */
+  --rlp-tight: #ffc857; /* 對比 #0f1419 ≈12.03:1 */
+  --rlp-collide: #ff9e9e; /* 對比 #0f1419 ≈9.38:1 */
+  --rlp-floor: #1c2430; /* T5.1：比 --dark-bg #0f1419 亮一階 */
+  --rlp-outline: #8b95a5;
+}
+
+/* ---- a11y：視覺隱藏但保留於 a11y tree / tab order ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- skip-nav（四條：畫布／設定／屬性／清單）---- */
+.skip-nav {
+  position: relative;
+}
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  z-index: 10;
+  padding: 0.625rem 1.25rem;
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg);
+  border-radius: 0 0 0.375rem 0;
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 0;
+}
+.skip-link + .skip-link:focus {
+  left: 11rem;
+}
+.skip-link + .skip-link + .skip-link:focus {
+  left: 22rem;
+}
+.skip-link + .skip-link + .skip-link + .skip-link:focus {
+  left: 33rem;
+}
+
+/* ---- 訊息區 ---- */
+.alert-message {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.375rem;
+  border-left: 4px solid var(--rlp-warn);
+  background-color: var(--surface-dim);
+  color: var(--rlp-warn);
+}
+.alert-message.is-empty {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* ---- 版面：main.planner，行動版單欄（DOM 序＝畫布→設定→屬性→清單）---- */
+main.planner {
+  max-width: 1400px;
+  display: block;
+}
+main.planner > section {
+  margin-bottom: 1.5rem;
+  min-width: 0;
+}
+main.planner h2 {
+  font-size: 1.1rem;
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+@media (min-width: 1100px) {
+  main.planner {
+    display: grid;
+    grid-template-columns: minmax(300px, 380px) 1fr;
+    grid-template-areas:
+      "settings board"
+      "props board"
+      "items board";
+    align-items: start;
+    gap: 1.5rem;
+  }
+  #board-section {
+    grid-area: board;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-height: 100dvh;
+    overflow: auto;
+    margin-bottom: 0;
+  }
+  #settings-section {
+    grid-area: settings;
+    margin-bottom: 0;
+  }
+  #props-section {
+    grid-area: props;
+    margin-bottom: 0;
+  }
+  #items-section {
+    grid-area: items;
+    margin-bottom: 0;
+  }
+}
+
+/* ---- 畫布佔位框 ---- */
+.board {
+  aspect-ratio: 3 / 4;
+  min-height: 240px;
+  max-height: 80dvh;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+#board-svg {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  display: block;
+  background: var(--surface-dim);
+}
+.board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.hint {
+  font-size: 0.8125rem;
+  color: var(--fg-muted);
+  margin-block: 0.5rem;
+}
+/* T5.4（M5 回饋 8）：分析摘要是一行狀態列，常駐於工具列與畫布之間，
+   sticky 右欄不必內捲就看得到；`#report-list` 仍在畫布下方。 */
+.report-summary {
+  margin: 0 0 0.5rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-dim);
+  color: var(--fg-muted);
+  font-size: 0.8125rem;
+}
+
+/* ---- 圖層底色（T5.1：地板與背景要分得出來，且房間有外框）---- */
+.floor {
+  fill: var(--rlp-floor);
+  stroke: var(--rlp-outline);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.wall {
+  fill: var(--rlp-wall);
+  stroke: var(--rlp-outline);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+/* overlay 是 aria-hidden 的純視覺層：不得攔截指標，否則迴旋區那片 arc
+   會蓋住底下門節點的命中區（T5.2 回饋 2「門拖不到」的成因之一）。 */
+#layer-overlay {
+  pointer-events: none;
+}
+
+/* ---- 家具／門節點 ---- */
+.node--item .item-rect {
+  stroke: var(--rlp-item-stroke);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.item-label {
+  font: 12px/1 system-ui, sans-serif;
+  pointer-events: none;
+  user-select: none;
+}
+.node:focus-visible .item-rect,
+.node.is-selected .item-rect {
+  stroke: var(--rlp-focus);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+.node[tabindex] {
+  outline: none;
+}
+.node.is-dragging {
+  opacity: 0.85;
+}
+body.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+/* 方塊把手：凸出區只描邊（地板本身已由 normalize() 畫出），凹入區半透明填色 */
+.node--block .block-rect {
+  fill: none;
+  stroke: var(--rlp-outline);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+.block--cutout .block-rect {
+  fill: var(--rlp-wall);
+  fill-opacity: 0.35;
+}
+/* T5.2 門命中區：透明但可命中（fill:transparent + pointer-events:all），
+   扇形＝迴旋區、帶＝門扇加厚 12 cm；顯示迴旋區開關不影響命中。 */
+.door-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: move;
+}
+.door-leaf {
+  stroke: var(--rlp-door);
+  stroke-width: 4;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.door-hinge {
+  fill: var(--rlp-door);
+}
+.node--door.is-unattached .door-leaf {
+  stroke-dasharray: 6 4;
+}
+.door-swing {
+  fill: var(--rlp-swing);
+}
+
+/* ---- overlay（T3.1 overlay.ts 消費；斜線為單一多段 <path>，OQ5）---- */
+.corridor--narrow .hatch {
+  stroke: var(--rlp-warn);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.hatch {
+  fill: none;
+}
+.corridor-rect {
+  fill: none;
+  stroke: var(--rlp-warn);
+  vector-effect: non-scaling-stroke;
+}
+.corridor--tight .dimension-text {
+  fill: var(--rlp-tight);
+}
+.corridor--doorway .dimension-text {
+  fill: var(--fg-muted);
+}
+/* 不評級（passable 抑制）：尺寸線改虛線，與已評級的實線尺寸線區隔 */
+.corridor--suppressed .dimension {
+  stroke-dasharray: 4 3;
+}
+/* 各面需留：淡帶為建議標示；違規面再加紅虛線框 */
+.side-need {
+  fill: var(--rlp-swing);
+  stroke: none;
+}
+.side-need--violated {
+  fill: none;
+  stroke: var(--rlp-warn);
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.door-violation {
+  fill: none;
+  stroke: var(--rlp-collide);
+  stroke-dasharray: 6 4;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.collision {
+  stroke: var(--rlp-collide);
+  stroke-dasharray: 6 4;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  fill: none;
+}
+.dimension {
+  stroke: var(--fg-muted);
+  vector-effect: non-scaling-stroke;
+}
+.dimension-text {
+  font: 10px system-ui, sans-serif;
+  fill: var(--fg);
+}
+/* T5.1 房間尺寸標註（board.ts 畫進 overlay-static，key 前綴 dim|）：
+   尺寸線與外框同色，數值文字用次要前景色以免搶過家具名稱。 */
+.dim-line {
+  fill: none;
+  stroke: var(--rlp-outline);
+  vector-effect: non-scaling-stroke;
+}
+.dim-text {
+  font: 11px system-ui, sans-serif;
+  fill: var(--fg-muted);
+  pointer-events: none;
+  user-select: none;
+}
+.dim-text--block {
+  font-size: 10px;
+}
+
+/* ---- 按鈕系統（T5.4，M5 回饋 4）----
+   `.btn` 為全頁單一按鈕形；主鈕／危險鈕／小鈕為變體。header 的
+   `.theme-toggle` 沿用 src/style.css 的全站形，刻意不套 `.btn`。 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 32px;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--surface-dim);
+  border-color: var(--link);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn--primary {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--accent-fill-fg); /* 對比見 src/style.css 檔頭 */
+  font-weight: 600;
+}
+.btn--primary:hover {
+  background: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
+}
+.btn--danger {
+  border-color: var(--rlp-warn);
+  color: var(--rlp-warn);
+}
+.btn--danger:hover {
+  background: var(--surface-dim);
+  border-color: var(--rlp-warn);
+}
+.btn--small {
+  min-height: 26px;
+  padding: 0 0.5rem;
+  font-size: 0.8rem;
+}
+/* switch：pill 形，按下態＝主色＋實心圓點（`content:''` 不進 accessible
+   name，狀態仍單由 aria-pressed 承載）。 */
+.switch {
+  border-radius: 999px;
+}
+.switch::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.switch[aria-pressed='true'] {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--accent-fill-fg);
+}
+.switch[aria-pressed='true']:hover {
+  background: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
+}
+.switch[aria-pressed='true']::before {
+  background: currentColor;
+}
+/* io 面板的分組列（歷史／檔案／分享）與屬性欄的動作列 */
+.btn-row,
+.props-actions,
+.switch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+/* ---- 面板／表單 ---- */
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  min-width: 0;
+  background: var(--surface);
+  box-shadow: 0 1px 2px var(--shadow-color);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.panel h3 {
+  font-size: 0.95rem;
+  color: var(--fg-muted);
+  margin-bottom: 0.5rem;
+}
+/* 兩欄欄位網格（標籤／控件）：每組欄位自成一列，故「網格」與「家具件數
+   上限」不再擠在同一列（M5 回饋 9）。 */
+.panel--grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 0.6rem;
+  align-items: center;
+}
+.panel--grid[hidden] {
+  display: none;
+}
+.panel--grid > h3,
+.panel--grid > fieldset,
+.panel--grid > div,
+.panel--grid > button,
+.panel--grid > p {
+  grid-column: 1 / -1;
+}
+.panel--grid > label,
+.props-label {
+  font-size: 0.875rem;
+  color: var(--fg-muted);
+}
+.panel input[type='number'],
+.panel input[type='text'],
+.panel select {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+}
+.panel input[type='number'] {
+  max-width: 8rem;
+}
+.panel input[type='color'] {
+  width: 40px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.panel fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.panel legend {
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+#add-door-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 0.6rem;
+  align-items: center;
+}
+/* 種類選擇：pill 形分段群組（radio 仍是實體控件，焦點環走 :focus-within）。 */
+.pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 26px;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.pill:has(input:checked) {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--accent-fill-fg);
+}
+.pill:focus-within {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+#color-swatches,
+#props-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+.swatch {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background-color: var(--swatch);
+  padding: 0;
+  cursor: pointer;
+}
+.swatch:hover {
+  border-color: var(--link);
+}
+.swatch:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.field-error {
+  color: var(--rlp-warn);
+  font-size: 0.8125rem;
+  min-height: 1.2em;
+}
+input[aria-invalid='true'] {
+  border-color: var(--rlp-warn);
+}
+/* T4.7 家具件數上限的效能提示：非錯誤，故用提示色而非警示色、無 min-height
+   （`hidden` 時不佔位） */
+.field-warning {
+  color: var(--rlp-tight);
+  font-size: 0.8125rem;
+}
+
+/* ---- 物件屬性欄（T5.3）---- */
+#props-empty {
+  font-style: italic;
+}
+.props-readonly {
+  font-weight: 600;
+}
+
+/* ---- 清單列（T5.3 簡化版型；T5.4 對齊；T5.5b nowrap 修正）----
+   每列＝`.row__main`（單行 nowrap：badge／summary／actions）＋列錯誤 `<p>`
+   （`li` 本身非 flex 容器，錯誤文字照常換到下一行）。`.row__main` 內只有
+   摘要／名稱可伸縮（`flex:1;min-width:0` 才吃得到 ellipsis），鈕一律
+   `flex:0 0 auto` 不被擠壓；`.row__actions` 自身可 wrap，列窄到鈕擠不下時
+   鈕才換第二行，不會逼摘要文字被截斷或把整列撐爆。 */
+#items-list,
+#structure-list {
+  list-style: none;
+  padding-left: 0;
+}
+.item-row,
+.structure-row {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+.item-row.is-selected,
+.structure-row.is-selected {
+  border-left-color: var(--rlp-focus);
+  background: var(--surface-dim);
+}
+.item-row.is-deleted .row-select {
+  text-decoration: line-through;
+  color: var(--fg-muted);
+}
+.row__main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+.row-select {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  text-align: left;
+}
+/* 家具列的選取鈕＝名稱本身，須吃可用寬並截字（結構列的選取鈕是固定短字，
+   不截字，見上方共用規則）。 */
+.item-row .row-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-pos {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: 0.8125rem;
+}
+.row-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: 0.8125rem;
+}
+.row-badge {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+.item-row .field-error:empty,
+.structure-row .field-error:empty {
+  display: none;
+}
+
+/* ---- 分析清單（T3.2 report-list.ts；列 class 為 report-entry--{kind}）----
+   overlay 是 aria-hidden 的純視覺層，本清單是它的文字等價，故分級以左緣
+   色條複述：警示＝--rlp-warn、提示＝--rlp-tight、不評級／資訊＝中性色。 */
+#report-list {
+  max-height: 30dvh;
+  overflow: auto;
+  list-style: none;
+  padding-left: 0;
+}
+.report-entry {
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.report-entry--narrow,
+.report-entry--collision,
+.report-entry--side,
+.report-entry--door,
+.report-entry--unattached,
+.report-entry--unconnected {
+  border-left: 3px solid var(--rlp-warn);
+  padding-left: 0.5rem;
+}
+.report-entry--tight {
+  border-left: 3px solid var(--rlp-tight);
+  padding-left: 0.5rem;
+}
+.report-entry--doorway,
+.report-entry--suppressed,
+.report-entry--ok,
+.report-entry--touch {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 0.5rem;
+}
+/* 可聚焦列：外觀同內文，只在 :focus-visible 露出輪廓（清單內捲不裁掉它）。 */
+.report-entry__focus {
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--link);
+  cursor: pointer;
+  padding: 0;
+}
+.report-entry__focus:focus-visible {
+  outline: 2px solid var(--rlp-focus);
+  outline-offset: 2px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.pager span {
+  flex: 1;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--fg-muted);
+}
+
+/* ---- 行動版：觸控目標放大、面板不橫向溢出 ---- */
+@media (max-width: 1099px) {
+  .btn {
+    min-height: 36px;
+  }
+  .btn--small {
+    min-height: 32px;
+  }
+  .panel input[type='number'] {
+    max-width: 100%;
+  }
+}
+
+/* ---- a11y：尊重減少動態偏好 ---- */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

@@ -1,0 +1,350 @@
+/* ============================================================
+   APNG → GIF 工具頁 — 區域樣式
+   由 main.ts 以 `import './style.css'` 消費（在 `import
+   '../../src/style.css'` 之後），僅補充本工具頁特有的元件；不重複
+   src/style.css 已涵蓋的 header/main/footer/連結/焦點樣式。
+
+   色彩 token 化：延續 src/style.css 的單一來源模式——本檔新增的
+   本地 token（`--a2g-*`：僅錯誤／警示訊息兩組）淺色值定義於 :root，
+   深色雙生值以 `--dark-a2g-*` 定義一次；下方兩個深色情境（跟隨系統
+   與使用者手動切換）皆只做 `--a2g-x: var(--dark-a2g-x)` 式引用，不
+   重複色值。主要按鈕填色改消費 src/style.css 的共用
+   `--accent-fill`／`--accent-fill-hover`／`--accent-fill-fg` token（對比
+   計算見該檔檔頭），不在本檔重複定義。
+
+   色票與對比值（WCAG 相對亮度公式估算，一般文字門檻 4.5:1，
+   UI 元件/焦點門檻 3:1）：
+
+   直接重用 src/style.css 已驗算過的全站語意 token（不重算）：
+   - 主文字 --fg／次文字 --fg-muted／連結焦點色 --link／
+     邊框 --border／卡片底色 --surface／淺灰背景 --surface-dim／
+     主要動作填色 --accent-fill／--accent-fill-hover／--accent-fill-fg
+     （各自淺色與深色對比值見 src/style.css 檔頭）。
+   - 進度條填色沿用 --link，軌道沿用 --border：
+     淺色對比 ≈ 5.42:1；深色 --dark-link(#60a5fa) 對 --dark-border(#30363d)
+     ≈ 4.80:1（皆達 UI 元件 3:1 門檻）。
+   - 次要按鈕（.button-like--secondary）文字／邊框改共同覆寫為
+     --link（覆寫繼承自 .button-like 的 --accent-fill 邊框，避免
+     深色模式下邊框/文字雙色不一致；不採 --accent-fill 是因為深色
+     --dark-accent-fill 對頁面深色背景僅 ≈3.58:1，未達一般文字
+     4.5:1 門檻）：淺色 --link 與 --accent-fill 同值 #1d4ed8，渲染
+     像素不變；深色 --dark-link #60a5fa 對頁面深色背景 ≈7.28:1，
+     同時滿足文字 4.5:1 與邊框 3:1 門檻，見下方規則旁註解。背景沿用
+     --bg、hover 背景沿用 --surface-dim。
+
+   本檔新增本地 token（無對應全站語意，或深色需獨立調校以維持對比）：
+   - 錯誤訊息（role=alert）--a2g-error-bg／--a2g-error-fg：
+     淺色文字 #991b1b／背景 #fee2e2 → 對比 ≈ 6.80:1（左側強調邊框同色，
+     對白底 ≈ 8.31:1）；深色文字 #fca5a5／背景 #7f1d1d → 對比 ≈ 5.28:1
+     （達文字門檻），左側邊框同色對 --dark-bg ≈ 9.75:1（達 UI 門檻）。
+   - 警示訊息（role=status，非阻斷）--a2g-warn-bg／--a2g-warn-fg：
+     淺色文字 #92400e／背景 #fef3c7 → 對比 ≈ 6.36:1；深色文字 #fcd34d／
+     背景 #451a03 → 對比 ≈ 10.39:1，左側邊框同色對 --dark-bg ≈ 12.84:1。
+   - 拖放區與欄位邊框：沿用 --fg-muted，淺色對白底 ≈ 7.6:1、深色對
+     --dark-bg ≈ 7.3:1（皆遠高於非文字 3:1 門檻，故不另立新色，見
+     src/style.css 檔頭）。
+   - 狀態一律有文字內容（訊息文字本身、按鈕文字），顏色僅輔助辨識。
+   ============================================================ */
+
+/* ---- 本地色彩 token：淺色為預設值，:root 為單一定義處 ---- */
+:root {
+  --a2g-error-bg: #fee2e2;
+  --a2g-error-fg: #991b1b;
+  --a2g-warn-bg: #fef3c7;
+  --a2g-warn-fg: #92400e;
+
+  /* 深色調色盤單一來源：色值只在此定義一次，下方兩個深色情境
+     只做 --a2g-x: var(--dark-a2g-x) 式引用，見檔頭對比說明。 */
+  --dark-a2g-error-bg: #7f1d1d;
+  --dark-a2g-error-fg: #fca5a5;
+  --dark-a2g-warn-bg: #451a03;
+  --dark-a2g-warn-fg: #fcd34d;
+}
+
+/* ---- 深色情境（跟隨系統）：與 src/style.css 相同模式，僅在使用者
+   未手動切換為 data-theme="light" 時套用。須與下方
+   :root[data-theme="dark"] 區塊保持同步（皆只引用 --dark-a2g-* token）。 ---- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --a2g-error-bg: var(--dark-a2g-error-bg);
+    --a2g-error-fg: var(--dark-a2g-error-fg);
+    --a2g-warn-bg: var(--dark-a2g-warn-bg);
+    --a2g-warn-fg: var(--dark-a2g-warn-fg);
+  }
+}
+
+/* ---- 深色情境（使用者手動切換）：與上方 @media 區塊須保持同步。 ---- */
+:root[data-theme='dark'] {
+  --a2g-error-bg: var(--dark-a2g-error-bg);
+  --a2g-error-fg: var(--dark-a2g-error-fg);
+  --a2g-warn-bg: var(--dark-a2g-warn-bg);
+  --a2g-warn-fg: var(--dark-a2g-warn-fg);
+}
+
+/* ---- a11y：視覺隱藏但保留於 tab order（不可 display:none/visibility:hidden） ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+}
+
+.tool-section {
+  margin-bottom: 2rem;
+}
+
+.tool-section h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: 0.75rem;
+}
+
+/* ---- 檔案選取／拖放區 ---- */
+.file-drop {
+  position: relative;
+}
+
+.file-drop__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem 1.5rem;
+  border: 2px dashed var(--fg-muted); /* 次文字灰，沿用 src/style.css 驗算值，見檔頭 */
+  border-radius: 0.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.file-drop__label:hover {
+  border-color: var(--link);
+}
+
+/* The file input is a sibling of .file-drop__label (not a descendant, see
+   index.html), so `.file-drop__label:focus-within` never matches when the
+   input itself receives keyboard focus. Target the shared ancestor
+   (.file-drop) instead, so tabbing to the sr-only input still shows a
+   clearly visible focus treatment on the drop-zone card (WCAG 2.4.7) --
+   the input's own focus ring lands on a 1px-clipped box and is otherwise
+   invisible. Same already-vetted --link focus color, no new contrast
+   value needed. */
+.file-drop:focus-within .file-drop__label {
+  border-color: var(--link);
+  border-style: solid;
+}
+
+/* dragover 狀態由 T3.3 以 JS 切換此 class */
+.file-drop.is-dragover .file-drop__label {
+  border-color: var(--link);
+  border-style: solid;
+}
+
+.file-drop__icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.file-drop__text {
+  color: var(--fg-muted);
+}
+
+.file-drop__button {
+  display: inline-block;
+  margin-left: 0.25rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg); /* 對比見 src/style.css 檔頭 */
+  font-weight: 600;
+}
+
+.selected-filename {
+  margin-top: 0.5rem;
+  color: var(--fg-muted);
+  font-size: 0.9375rem;
+  word-break: break-all;
+}
+
+/* ---- 選項區 ---- */
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.option-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.option-field label {
+  font-size: 0.9375rem;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.option-field input {
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--fg-muted); /* 沿用次文字灰，遠高於 3:1 門檻，見檔頭 */
+  border-radius: 0.375rem;
+  font-size: 1rem;
+  color: var(--fg);
+  background-color: var(--surface);
+}
+
+.option-field input[type='color'] {
+  padding: 0.25rem;
+  height: 2.5rem;
+  width: 4.5rem;
+}
+
+/* ---- 按鈕 ---- */
+.button-like {
+  display: inline-block;
+  padding: 0.625rem 1.25rem;
+  border: 2px solid var(--accent-fill);
+  border-radius: 0.375rem;
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg); /* 對比見 src/style.css 檔頭 */
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-like:hover {
+  background-color: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
+}
+
+.button-like--secondary {
+  background-color: var(--bg);
+  /* 文字／邊框改共同覆寫為 --link（覆寫繼承自 .button-like 的
+     --accent-fill 邊框）：淺色 --link 與 --accent-fill 同值 #1d4ed8，
+     渲染像素不變；深色 --dark-link #60a5fa 對頁面深色背景 ≈7.28:1，
+     同時滿足文字 4.5:1 與邊框 3:1 門檻，且文字/邊框同色不再雙色，
+     見 src/style.css 檔頭。 */
+  color: var(--link);
+  border-color: var(--link);
+}
+
+.button-like--secondary:hover {
+  background-color: var(--surface-dim);
+}
+
+.button-like[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ---- 進度區 ---- */
+#progress-bar {
+  width: 100%;
+  height: 0.75rem;
+  border: none;
+  border-radius: 999px;
+  overflow: hidden;
+  background-color: var(--border);
+}
+
+#progress-bar::-webkit-progress-bar {
+  background-color: var(--border);
+  border-radius: 999px;
+}
+
+#progress-bar::-webkit-progress-value {
+  background-color: var(--link); /* 對軌道 --border ≈ 5.42:1，見檔頭 */
+  border-radius: 999px;
+}
+
+#progress-bar::-moz-progress-bar {
+  background-color: var(--link);
+  border-radius: 999px;
+}
+
+#progress-status {
+  margin-top: 0.5rem;
+  color: var(--fg-muted);
+  font-size: 0.9375rem;
+}
+
+/* ---- 錯誤／警示訊息 ---- */
+.error-message,
+.warning-message {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.375rem;
+  border-left: 4px solid;
+}
+
+.error-message {
+  background-color: var(--a2g-error-bg);
+  border-left-color: var(--a2g-error-fg);
+  color: var(--a2g-error-fg); /* 對比見檔頭 */
+}
+
+.warning-message {
+  background-color: var(--a2g-warn-bg);
+  border-left-color: var(--a2g-warn-fg);
+  color: var(--a2g-warn-fg); /* 對比見檔頭 */
+}
+
+.warning-message .button-like {
+  margin-top: 0.75rem;
+}
+
+/* Fix 3 (code review): #error-message/#warning-message stay permanently in
+   the DOM/accessibility tree (main.ts never toggles their `hidden`
+   attribute -- see index.html) so a screen reader's live-region watcher is
+   always attached to them; main.ts toggles this class instead, purely to
+   collapse their visual box when there's no active message. Zeroing the box
+   model (not display/visibility) keeps the node "present" throughout. */
+.error-message.is-empty,
+.warning-message.is-empty {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* ---- 預覽區 ---- */
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.preview-panel {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.preview-panel img {
+  max-width: 100%;
+  border-radius: 0.25rem;
+  background-color: var(--surface-dim);
+}
+
+.preview-panel .button-like {
+  margin-top: 0.75rem;
+  margin-right: 0.5rem;
+}
+
+/* preview-panel 以 tabindex="-1" 承接程式化焦點（見 index.html 註解），
+   聚焦時仍需可見的焦點框，故不覆寫全站 :focus-visible 規則 */

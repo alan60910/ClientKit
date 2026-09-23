@@ -1,0 +1,109 @@
+{
+  "version": 2,
+  "mode": "plain",
+  "separator": { "kind": "preset", "value": "|" },
+  "lastArrowCap": true,
+  "powerlineArrow": false,
+  "segments": [
+    { "id": "git-branch", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 0 },
+    { "id": "model", "enabled": true, "icon": true, "color": { "kind": "auto" }, "row": 0 },
+    { "id": "effort", "enabled": true, "icon": true, "color": { "kind": "auto" }, "row": 0 },
+    { "id": "session-name", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 0 },
+
+    {
+      "id": "context-remaining",
+      "enabled": true,
+      "icon": true,
+      "color": { "kind": "default" },
+      "bar": true,
+      "threshold": {
+        "buckets": [
+          { "kind": "ansi256", "index": 196 },
+          { "kind": "ansi256", "index": 220 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 250 },
+          { "kind": "ansi256", "index": 249 },
+          { "kind": "ansi256", "index": 247 },
+          { "kind": "ansi256", "index": 246 },
+          { "kind": "ansi256", "index": 244 }
+        ]
+      },
+      "row": 1
+    },
+
+    {
+      "id": "rate-5h",
+      "enabled": true,
+      "icon": true,
+      "color": { "kind": "default" },
+      "bar": true,
+      "threshold": {
+        "buckets": [
+          { "kind": "ansi256", "index": 244 },
+          { "kind": "ansi256", "index": 246 },
+          { "kind": "ansi256", "index": 247 },
+          { "kind": "ansi256", "index": 249 },
+          { "kind": "ansi256", "index": 250 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 220 },
+          { "kind": "ansi256", "index": 196 }
+        ]
+      },
+      "row": 2
+    },
+    { "id": "reset-5h", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 2 },
+
+    {
+      "id": "rate-7d",
+      "enabled": true,
+      "icon": true,
+      "color": { "kind": "default" },
+      "bar": true,
+      "threshold": {
+        "buckets": [
+          { "kind": "ansi256", "index": 244 },
+          { "kind": "ansi256", "index": 246 },
+          { "kind": "ansi256", "index": 247 },
+          { "kind": "ansi256", "index": 249 },
+          { "kind": "ansi256", "index": 250 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 34 },
+          { "kind": "ansi256", "index": 220 },
+          { "kind": "ansi256", "index": 196 }
+        ]
+      },
+      "row": 3
+    },
+    { "id": "reset-7d", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 3 },
+
+    { "id": "token-in", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 4 },
+    { "id": "token-out", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 4 },
+    { "id": "cache-hit", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 4 },
+
+    { "id": "cwd", "enabled": true, "icon": true, "color": { "kind": "default" }, "variant": "full", "row": 5 },
+
+    { "id": "thinking", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 6 },
+    { "id": "vim-mode", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 6 },
+    { "id": "clock", "enabled": true, "icon": true, "color": { "kind": "default" }, "row": 6 },
+
+    { "id": "project-dir", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "output-style", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "version", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "cost", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "duration", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "lines-changed", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "context-size", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "context-used", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "agent-name", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "pr", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "repo", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "worktree", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "worktree-branch", "enabled": false, "icon": true, "color": { "kind": "default" } },
+    { "id": "git-dirty", "enabled": false, "icon": true, "color": { "kind": "default" } }
+  ]
+}

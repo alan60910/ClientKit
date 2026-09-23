@@ -1,0 +1,38 @@
+{
+  "name": "clientkit",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "predev": "node scripts/vendor-ffmpeg.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/vendor-ffmpeg.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node scripts/e2e-statusline.mjs && node scripts/e2e-room-layout.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.scripts.json",
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "golden:update": "node scripts/golden-statusline.mjs && node scripts/golden-statusline-ps1.mjs",
+    "publish:public": "node scripts/publish-public.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "jsdom": "29.1.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.3",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "@ffmpeg/core": "0.12.10",
+    "@ffmpeg/ffmpeg": "0.12.15",
+    "@ffmpeg/util": "0.12.2",
+    "apng-js": "1.1.5",
+    "gifenc": "1.0.3",
+    "gifuct-js": "2.1.2"
+  }
+}

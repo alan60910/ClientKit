@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>房間家具擺放規劃器 - ClientKit</title>
+    <meta
+      name="description"
+      content="在瀏覽器端規劃房間家具擺放：輸入房間與家具尺寸、拖曳擺放、即時檢查通道寬度與各面淨空間距，全程不上傳任何資料。"
+    />
+    <meta name="color-scheme" content="light dark" />
+    <!-- FOUC 防護，同 tools/_probe/，byte-identical -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('clientkit-theme');
+          if (t === 'dark' || t === 'light')
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      html { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme='light']) { background-color: #0f1419; }
+      }
+      html[data-theme='dark'] { background-color: #0f1419; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="../../">返回 ClientKit</a>
+      <h1>房間家具擺放規劃器</h1>
+      <button type="button" class="theme-toggle" aria-pressed="false">深色模式切換</button>
+    </header>
+    <nav class="skip-nav" aria-label="區塊快速跳轉">
+      <a class="skip-link" href="#board-section" data-testid="skip-to-board">跳至畫布</a>
+      <a class="skip-link" href="#settings-section" data-testid="skip-to-settings">跳至設定</a>
+      <a class="skip-link" href="#props-section" data-testid="skip-to-props">跳至屬性</a>
+      <a class="skip-link" href="#items-section" data-testid="skip-to-list">跳至清單</a>
+    </nav>
+    <main class="planner">
+      <div id="status" data-testid="status" role="status" aria-live="polite" class="sr-only"></div>
+      <div id="error" data-testid="error" role="alert" class="alert-message is-empty"></div>
+
+      <section id="board-section" data-testid="board-section" aria-labelledby="board-heading" tabindex="-1">
+        <h2 id="board-heading" data-testid="board-heading">房間平面圖</h2>
+        <div class="board-toolbar">
+          <button type="button" class="btn btn--small" id="btn-fit" data-testid="btn-fit">符合視窗</button>
+          <button type="button" class="btn btn--small" id="btn-zoom-in" data-testid="btn-zoom-in">放大</button>
+          <button type="button" class="btn btn--small" id="btn-zoom-out" data-testid="btn-zoom-out">縮小</button>
+          <span id="zoom-label" data-testid="zoom-label" aria-live="off">100%</span>
+          <span id="export-scale" data-testid="export-scale"></span>
+        </div>
+        <!-- 分析摘要常駐於工具列下方（T5.4 回饋 8）；id／testid 不變 -->
+        <p id="report-summary" data-testid="report-summary" class="report-summary"></p>
+        <div id="board" data-testid="board" class="board">
+          <svg
+            id="board-svg"
+            data-testid="board-svg"
+            role="group"
+            aria-label="房間平面圖"
+            viewBox="0 0 300 400"
+            preserveAspectRatio="xMidYMid meet"
+            aria-describedby="board-hint"
+          >
+            <g id="layer-floor" data-testid="layer-floor"></g>
+            <g id="layer-walls" data-testid="layer-walls"></g>
+            <g id="layer-items" data-testid="layer-items"></g>
+            <g id="layer-doors" data-testid="layer-doors"></g>
+            <g id="layer-overlay" data-testid="layer-overlay">
+              <g id="overlay-static" data-testid="overlay-static"></g>
+              <g id="overlay-dynamic" data-testid="overlay-dynamic"></g>
+            </g>
+          </svg>
+        </div>
+        <p id="board-hint" data-testid="board-hint" class="hint">方向鍵移動 1 cm，Shift 加速 10 cm；R 旋轉；Delete 刪除；逗號／句號切換家具；Esc 取消拖移。</p>
+
+        <section id="report-section" data-testid="report-section" aria-labelledby="report-heading">
+          <h2 id="report-heading" data-testid="report-heading">分析結果</h2>
+          <ol id="report-list" data-testid="report-list"></ol>
+          <div class="pager" id="report-pager" data-testid="report-pager">
+            <button type="button" class="btn btn--small" id="report-prev" data-testid="report-prev">上一頁</button>
+            <span id="report-page-label" data-testid="report-page-label"></span>
+            <button type="button" class="btn btn--small" id="report-next" data-testid="report-next">下一頁</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="settings-section" data-testid="settings-section" aria-labelledby="settings-heading" tabindex="-1">
+        <h2 id="settings-heading" data-testid="settings-heading">設定</h2>
+
+        <form id="room-form" data-testid="room-form" class="panel panel--grid">
+          <h3>房間</h3>
+          <label for="room-width">寬（cm）</label>
+          <input id="room-width" data-testid="room-width" type="number" min="1" max="5000" step="1" value="300" />
+          <label for="room-depth">深（cm）</label>
+          <input id="room-depth" data-testid="room-depth" type="number" min="1" max="5000" step="1" value="400" />
+        </form>
+
+        <section id="structure-panel" data-testid="structure-panel" class="panel" aria-labelledby="structure-heading">
+          <h3 id="structure-heading" data-testid="structure-heading">房間結構</h3>
+          <ol id="structure-list" data-testid="structure-list"></ol>
+        </section>
+
+        <form id="add-form" data-testid="add-form" class="panel panel--grid">
+          <h3>加入家具</h3>
+          <fieldset id="add-kind" data-testid="add-kind">
+            <legend>種類</legend>
+            <div class="pill-group">
+              <label class="pill" for="add-kind-item"><input type="radio" id="add-kind-item" data-testid="add-kind-item" name="add-kind" value="item" checked /> 家具</label>
+              <label class="pill" for="add-kind-extend"><input type="radio" id="add-kind-extend" data-testid="add-kind-extend" name="add-kind" value="extend" /> 凸出區</label>
+              <label class="pill" for="add-kind-cutout"><input type="radio" id="add-kind-cutout" data-testid="add-kind-cutout" name="add-kind" value="cutout" /> 凹入區</label>
+              <label class="pill" for="add-kind-door"><input type="radio" id="add-kind-door" data-testid="add-kind-door" name="add-kind" value="door" /> 門</label>
+            </div>
+          </fieldset>
+          <label for="add-preset">預設家具</label>
+          <select id="add-preset" data-testid="add-preset">
+            <option value="">自訂</option>
+          </select>
+          <label for="add-name">名稱</label>
+          <input id="add-name" data-testid="add-name" type="text" maxlength="60" />
+          <label for="add-width">寬（cm）</label>
+          <input id="add-width" data-testid="add-width" type="number" min="1" max="5000" step="1" />
+          <label for="add-depth">深（cm）</label>
+          <input id="add-depth" data-testid="add-depth" type="number" min="1" max="5000" step="1" />
+          <label for="add-x">X（cm）</label>
+          <input id="add-x" data-testid="add-x" type="number" step="1" value="0" />
+          <label for="add-y">Y（cm）</label>
+          <input id="add-y" data-testid="add-y" type="number" step="1" value="0" />
+          <label for="add-color">顏色</label>
+          <input id="add-color" data-testid="add-color" type="color" value="#9db4d6" />
+          <div id="color-swatches" data-testid="color-swatches" role="group" aria-label="快選顏色">
+            <button type="button" class="swatch" data-color="#9db4d6" aria-label="顏色 #9db4d6" style="--swatch:#9db4d6"></button>
+            <button type="button" class="swatch" data-color="#d6b89d" aria-label="顏色 #d6b89d" style="--swatch:#d6b89d"></button>
+            <button type="button" class="swatch" data-color="#a8c9a1" aria-label="顏色 #a8c9a1" style="--swatch:#a8c9a1"></button>
+            <button type="button" class="swatch" data-color="#d99a9a" aria-label="顏色 #d99a9a" style="--swatch:#d99a9a"></button>
+            <button type="button" class="swatch" data-color="#c9c9c9" aria-label="顏色 #c9c9c9" style="--swatch:#c9c9c9"></button>
+            <button type="button" class="swatch" data-color="#7a8b99" aria-label="顏色 #7a8b99" style="--swatch:#7a8b99"></button>
+            <button type="button" class="swatch" data-color="#e0c68c" aria-label="顏色 #e0c68c" style="--swatch:#e0c68c"></button>
+            <button type="button" class="swatch" data-color="#b28fce" aria-label="顏色 #b28fce" style="--swatch:#b28fce"></button>
+          </div>
+          <fieldset id="add-door-fields" data-testid="add-door-fields">
+            <legend>門</legend>
+            <label for="add-door-leafdir">門扇方向</label>
+            <select id="add-door-leafdir" data-testid="add-door-leafdir">
+              <option value="+">正向</option>
+              <option value="-">負向</option>
+            </select>
+            <label for="add-door-swing">開向</label>
+            <select id="add-door-swing" data-testid="add-door-swing">
+              <option value="in">內開</option>
+              <option value="out">外開</option>
+            </select>
+          </fieldset>
+          <button type="submit" class="btn btn--primary" id="btn-add" data-testid="btn-add">加入</button>
+          <p id="add-error" data-testid="add-error" class="field-error" aria-live="polite"></p>
+        </form>
+
+        <section id="analysis-panel" data-testid="analysis-panel" class="panel panel--grid" aria-labelledby="analysis-heading">
+          <h3 id="analysis-heading" data-testid="analysis-heading">分析</h3>
+          <div class="switch-row">
+            <button type="button" class="btn btn--small switch" id="sw-distance" data-testid="sw-distance" aria-pressed="false">顯示距離</button>
+            <button type="button" class="btn btn--small switch" id="sw-warnings" data-testid="sw-warnings" aria-pressed="true">顯示警示</button>
+            <button type="button" class="btn btn--small switch" id="sw-swing" data-testid="sw-swing" aria-pressed="true">顯示迴旋區</button>
+          </div>
+          <label for="th-ignore">忽略低於（cm）</label>
+          <input id="th-ignore" data-testid="th-ignore" type="number" min="0" max="5000" step="1" value="5" />
+          <label for="th-warn">警示低於（cm）</label>
+          <input id="th-warn" data-testid="th-warn" type="number" min="0" max="5000" step="1" value="60" />
+          <label for="th-advise">建議低於（cm）</label>
+          <input id="th-advise" data-testid="th-advise" type="number" min="0" max="5000" step="1" value="75" />
+          <p id="th-error" data-testid="th-error" class="field-error" aria-live="polite"></p>
+          <label for="snap-grid">網格（cm）</label>
+          <select id="snap-grid" data-testid="snap-grid">
+            <option value="1">1</option>
+            <option value="5" selected>5</option>
+            <option value="10">10</option>
+          </select>
+          <label for="max-items">家具件數上限</label>
+          <input id="max-items" data-testid="max-items" type="number" min="1" max="75" step="1" value="20" />
+          <p id="max-items-warning" data-testid="max-items-warning" class="field-warning" aria-live="polite" hidden></p>
+        </section>
+
+        <section id="io-panel" data-testid="io-panel" class="panel" aria-labelledby="io-heading">
+          <h3 id="io-heading" data-testid="io-heading">匯入匯出</h3>
+          <!-- 三列分組：歷史／檔案／分享（T5.4 回饋 4） -->
+          <div class="btn-row">
+            <button type="button" class="btn btn--small" id="btn-undo" data-testid="btn-undo">復原</button>
+            <button type="button" class="btn btn--small" id="btn-redo" data-testid="btn-redo">重做</button>
+            <button type="button" class="btn btn--small" id="btn-restore-backup" data-testid="btn-restore-backup">還原上一份</button>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn btn--small" id="btn-export-json" data-testid="btn-export-json">匯出 JSON</button>
+            <button type="button" class="btn btn--small" id="btn-import-json" data-testid="btn-import-json">匯入 JSON</button>
+            <input type="file" id="import-file" data-testid="import-file" accept="application/json,.json" class="sr-only" tabindex="-1" />
+            <button type="button" class="btn btn--small" id="btn-export-png" data-testid="btn-export-png">匯出 PNG</button>
+            <button type="button" class="btn btn--small btn--danger" id="btn-purge" data-testid="btn-purge">清空已刪除</button>
+            <button type="button" class="btn btn--small btn--danger" id="btn-clear" data-testid="btn-clear">清空</button>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn btn--small" id="btn-share" data-testid="btn-share">複製分享連結</button>
+            <button type="button" class="btn btn--small" id="btn-save-shared" data-testid="btn-save-shared" hidden>儲存為我的平面圖</button>
+          </div>
+          <p id="share-note" data-testid="share-note" class="hint">連結本身即包含整份平面圖，會留在瀏覽紀錄與收件者手上</p>
+          <p id="io-notice" data-testid="io-notice" class="hint" aria-live="polite"></p>
+        </section>
+      </section>
+
+      <!-- T5.3 物件屬性欄：DOM 序 畫布→設定→屬性→清單（行動版即堆疊順序） -->
+      <section id="props-section" data-testid="props-section" aria-labelledby="props-heading" tabindex="-1">
+        <h2 id="props-heading" data-testid="props-heading">物件屬性</h2>
+        <p id="props-empty" data-testid="props-empty" class="hint">尚未選取物件——點選畫布上的家具、方塊或門。</p>
+
+        <form id="props-item" data-testid="props-item" class="panel panel--grid" hidden>
+          <h3>家具</h3>
+          <label for="props-item-name">名稱</label>
+          <input id="props-item-name" data-testid="props-item-name" type="text" maxlength="60" />
+          <label for="props-item-width">寬（cm）</label>
+          <input id="props-item-width" data-testid="props-item-width" type="number" min="1" max="5000" step="1" />
+          <label for="props-item-depth">深（cm）</label>
+          <input id="props-item-depth" data-testid="props-item-depth" type="number" min="1" max="5000" step="1" />
+          <label for="props-item-x">X（cm）</label>
+          <input id="props-item-x" data-testid="props-item-x" type="number" step="1" />
+          <label for="props-item-y">Y（cm）</label>
+          <input id="props-item-y" data-testid="props-item-y" type="number" step="1" />
+          <label for="props-item-rotation">旋轉角度</label>
+          <select id="props-item-rotation" data-testid="props-item-rotation">
+            <option value="0">0°</option>
+            <option value="90">90°</option>
+            <option value="180">180°</option>
+            <option value="270">270°</option>
+          </select>
+          <label for="props-item-color">顏色</label>
+          <input id="props-item-color" data-testid="props-item-color" type="color" value="#9db4d6" />
+          <div id="props-swatches" data-testid="props-swatches" role="group" aria-label="快選顏色">
+            <button type="button" class="swatch" data-color="#9db4d6" aria-label="顏色 #9db4d6" style="--swatch:#9db4d6"></button>
+            <button type="button" class="swatch" data-color="#d6b89d" aria-label="顏色 #d6b89d" style="--swatch:#d6b89d"></button>
+            <button type="button" class="swatch" data-color="#a8c9a1" aria-label="顏色 #a8c9a1" style="--swatch:#a8c9a1"></button>
+            <button type="button" class="swatch" data-color="#d99a9a" aria-label="顏色 #d99a9a" style="--swatch:#d99a9a"></button>
+            <button type="button" class="swatch" data-color="#c9c9c9" aria-label="顏色 #c9c9c9" style="--swatch:#c9c9c9"></button>
+            <button type="button" class="swatch" data-color="#7a8b99" aria-label="顏色 #7a8b99" style="--swatch:#7a8b99"></button>
+            <button type="button" class="swatch" data-color="#e0c68c" aria-label="顏色 #e0c68c" style="--swatch:#e0c68c"></button>
+            <button type="button" class="swatch" data-color="#b28fce" aria-label="顏色 #b28fce" style="--swatch:#b28fce"></button>
+          </div>
+          <label for="props-item-passable">可通行</label>
+          <input id="props-item-passable" data-testid="props-item-passable" type="checkbox" />
+          <label for="props-item-need-n">北側需留（cm，0＝無）</label>
+          <input id="props-item-need-n" data-testid="props-item-need-n" type="number" min="0" max="5000" step="1" />
+          <label for="props-item-need-e">東側需留（cm，0＝無）</label>
+          <input id="props-item-need-e" data-testid="props-item-need-e" type="number" min="0" max="5000" step="1" />
+          <label for="props-item-need-s">南側需留（cm，0＝無）</label>
+          <input id="props-item-need-s" data-testid="props-item-need-s" type="number" min="0" max="5000" step="1" />
+          <label for="props-item-need-w">西側需留（cm，0＝無）</label>
+          <input id="props-item-need-w" data-testid="props-item-need-w" type="number" min="0" max="5000" step="1" />
+          <div class="props-actions">
+            <button type="button" class="btn btn--small" id="props-item-rotate" data-testid="props-item-rotate">旋轉</button>
+            <button type="button" class="btn btn--small btn--danger" id="props-item-delete" data-testid="props-item-delete">刪除</button>
+            <button type="button" class="btn btn--small" id="props-item-restore" data-testid="props-item-restore" hidden>還原</button>
+          </div>
+        </form>
+
+        <form id="props-block" data-testid="props-block" class="panel panel--grid" hidden>
+          <h3>房間結構</h3>
+          <span class="props-label">種類</span>
+          <span id="props-block-kind" data-testid="props-block-kind" class="props-readonly"></span>
+          <label for="props-block-x">X（cm）</label>
+          <input id="props-block-x" data-testid="props-block-x" type="number" step="1" />
+          <label for="props-block-y">Y（cm）</label>
+          <input id="props-block-y" data-testid="props-block-y" type="number" step="1" />
+          <label for="props-block-width">寬（cm）</label>
+          <input id="props-block-width" data-testid="props-block-width" type="number" min="1" max="5000" step="1" />
+          <label for="props-block-depth">深（cm）</label>
+          <input id="props-block-depth" data-testid="props-block-depth" type="number" min="1" max="5000" step="1" />
+          <div class="props-actions">
+            <button type="button" class="btn btn--small btn--danger" id="props-block-delete" data-testid="props-block-delete">刪除</button>
+          </div>
+        </form>
+
+        <form id="props-door" data-testid="props-door" class="panel panel--grid" hidden>
+          <h3>門</h3>
+          <label for="props-door-x">X（cm）</label>
+          <input id="props-door-x" data-testid="props-door-x" type="number" step="1" />
+          <label for="props-door-y">Y（cm）</label>
+          <input id="props-door-y" data-testid="props-door-y" type="number" step="1" />
+          <label for="props-door-width">寬（cm）</label>
+          <input id="props-door-width" data-testid="props-door-width" type="number" min="1" max="5000" step="1" />
+          <label for="props-door-leafdir">門扇方向</label>
+          <select id="props-door-leafdir" data-testid="props-door-leafdir">
+            <option value="+">正向</option>
+            <option value="-">反向</option>
+          </select>
+          <label for="props-door-swing">開門方向</label>
+          <select id="props-door-swing" data-testid="props-door-swing">
+            <option value="in">內開</option>
+            <option value="out">外開</option>
+          </select>
+          <span class="props-label">牆</span>
+          <span id="props-door-wall" data-testid="props-door-wall" class="props-readonly"></span>
+          <div class="props-actions">
+            <button type="button" class="btn btn--small btn--danger" id="props-door-delete" data-testid="props-door-delete">刪除</button>
+          </div>
+        </form>
+
+        <p id="props-error" data-testid="props-error" class="field-error" aria-live="polite"></p>
+      </section>
+
+      <section id="items-section" data-testid="items-section" aria-labelledby="items-heading" tabindex="-1">
+        <h2 id="items-heading" data-testid="items-heading">家具清單</h2>
+        <ol id="items-list" data-testid="items-list"></ol>
+        <div class="pager" id="items-pager" data-testid="items-pager">
+          <button type="button" class="btn btn--small" id="items-prev" data-testid="items-prev">上一頁</button>
+          <span id="items-page-label" data-testid="items-page-label"></span>
+          <button type="button" class="btn btn--small" id="items-next" data-testid="items-next">下一頁</button>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <p>ClientKit — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>
+        © 2026 alan60910 · <a href="https://github.com/alan60910">GitHub</a> ·
+        <a href="https://github.com/alan60910/ClientKit/blob/main/LICENSE">MIT License</a>
+      </p>
+    </footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

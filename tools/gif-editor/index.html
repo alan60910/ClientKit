@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GIF 編輯｜ClientKit</title>
+    <meta
+      name="description"
+      content="在瀏覽器端編輯 GIF 動畫：刪除或還原幀、調整每幀停留時間與播放次數，轉換後可預覽並下載，檔案不會上傳。"
+    />
+    <!-- 讓瀏覽器在任何 CSS 套用前就能為深色偏好使用者選深色預設畫布（配合下方換頁白閃防護 style）。 -->
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      主題切換 FOUC 防護（(internal design doc) §D4，
+      實文釘死；四個工具頁 byte-identical）：在樣式表套用前先讀
+      localStorage 的手動切換紀錄並補上 data-theme，避免「深色 OS 手選
+      淺色」重整時先閃一下深色 UA 預設。優先次序（localStorage＞系統＞
+      淺色）與 toggle 鈕的 wiring／aria-pressed 同步在 src/theme.ts，
+      main.ts 於任何渲染前 import。
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('clientkit-theme');
+          if (t === 'dark' || t === 'light')
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      /* 防換頁白閃：首繪前先給 html 主題底色（色值須與 src/style.css 的 --bg／--dark-bg 保持同步） */
+      html { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme='light']) { background-color: #0f1419; }
+      }
+      html[data-theme='dark'] { background-color: #0f1419; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="../../" class="back-link">← 返回 ClientKit</a>
+      <h1>GIF 編輯</h1>
+      <p>
+        選擇一個 GIF 檔案，在瀏覽器端刪除／還原幀、調整每幀停留時間與播放次數；檔案不會上傳到任何伺服器。
+      </p>
+      <!--
+        全域揭露文字（PLAN §5「記憶體警示閘」）：v1 一律走「解碼全幀化→
+        重新量化編碼」單一管線（見 PLAN Non-Goals），故每次轉換都會發生、
+        非僅超記憶體閾值時才適用，落於 intro 而非 #memory-warning。
+      -->
+      <p>
+        來源極低延遲（含 0 秒）的幀會被正規化為至少 20 毫秒；轉換會將整份
+        GIF 重新量化為新色盤並重新編碼，畫面通常視覺無損，但不保證與原始
+        檔案逐 byte 相同。
+      </p>
+      <button type="button" class="theme-toggle" aria-pressed="false">深色模式切換</button>
+    </header>
+    <main>
+      <section class="tool-section" aria-labelledby="select-heading">
+        <h2 id="select-heading">選擇檔案</h2>
+        <!--
+          整個卡片內容包在 <label> 裡，模式沿用 apng-to-gif（見該工具
+          index.html 註解）：原生 label 點擊語意讓「點卡片任一處」與
+          「點選擇檔案」等效；拖放事件與鍵盤等效（Tab 到 input 後
+          Enter/Space 開啟原生選檔器）皆由 T4.3 綁定，DOM 結構與命名
+          在此先行釘死。
+        -->
+        <div class="file-drop" id="file-drop">
+          <label for="file-input" class="file-drop__label">
+            <span class="file-drop__icon" aria-hidden="true">📁</span>
+            <span class="file-drop__text">
+              拖放 GIF 檔案到此處，或<span class="file-drop__button">選擇檔案</span>
+            </span>
+          </label>
+          <input
+            type="file"
+            id="file-input"
+            name="file"
+            accept="image/gif"
+            class="sr-only"
+          />
+        </div>
+        <p id="selected-filename" class="selected-filename" hidden></p>
+      </section>
+
+      <!--
+        常駐 live regions（SPEC Conventions／PLAN §5）：main.ts（T4.3）
+        僅透過 textContent 讀寫這三個節點，永不切換 hidden，只切換
+        .is-empty 收合視覺框——確保 SR 的 live-region 監看從頁面載入起
+        就掛在這些節點上，而非等到「內容已就緒才整個出現」才掛上（見
+        apng-to-gif index.html 同款註解／style.css 對應規則）。三者用途
+        不同、不可合併：記憶體警示（含「仍要繼續」續行按鈕）／一般狀態
+        （解碼中、批次編輯、換頁等播報）／錯誤（阻斷性）。
+      -->
+      <div role="status" id="memory-warning" class="warning-message is-empty">
+        <p id="memory-warning-text"></p>
+        <button type="button" id="memory-warning-continue-button" class="button-like" hidden>
+          仍要繼續
+        </button>
+      </div>
+
+      <div role="status" id="status-message" class="status-message is-empty">
+        <p id="status-text"></p>
+      </div>
+
+      <div role="alert" id="error-message" class="error-message is-empty"></div>
+
+      <!--
+        預覽掛載時序不變量（PLAN §5）：gifuct 無便宜單幀路徑，poster 與
+        昂貴同步解碼綁定，故本 section 初始 hidden，在全解碼完成、
+        frame 0 poster 備妥之後才由 T4.3 移除 hidden（而非提早掛載、
+        事後補 poster）。暫停控制與 poster 必須與 section 顯示同時可用。
+      -->
+      <section
+        class="tool-section preview-panel"
+        aria-labelledby="original-preview-heading"
+        id="original-preview-section"
+        hidden
+      >
+        <h2 id="original-preview-heading">原始 GIF 預覽</h2>
+        <img id="original-preview" alt="" hidden />
+        <!-- poster canvas：暫停時／prefers-reduced-motion 首次渲染時取代動圖 <img>（GIF <img> 無原生暫停） -->
+        <canvas id="original-poster" class="poster-canvas" hidden></canvas>
+        <!--
+          全域暫停鈕：PLAN §5 的暫停契約是「動圖 <img> 替換為 poster
+          canvas」，本頁原始／結果兩個預覽皆適用同一契約，此按鈕命名不
+          綁定 original——實際要暫停哪一個（或兩者）預覽由 T4.3 決定。
+        -->
+        <button
+          type="button"
+          id="pause-button"
+          class="button-like button-like--secondary"
+          aria-pressed="false"
+          hidden
+        >
+          暫停
+        </button>
+      </section>
+
+      <!--
+        幀清單 skip-link：置於 section 之前，跳至下方「轉換設定」錨點，
+        讓鍵盤使用者不必逐列（可能數百列）Tab 穿越整個幀清單。預設離屏，
+        取得焦點時顯現（見 style.css .skip-link）。
+      -->
+      <a href="#convert-section" class="skip-link">跳至轉換控制區</a>
+
+      <!--
+        幀清單 region landmark：aria-label 字面值故意與可見 <h2> 文字
+        相同（避免 label-in-name 不一致），"幀清單" 即此 section 的
+        accessible name，可被 SR 使用者以 region 導覽直接跳達。
+
+        顯隱管理（同原始／結果預覽的掛載時序不變量）：初始 hidden，直到
+        解碼成功、幀清單實際填入內容才由 main.ts 移除 hidden；選檔失敗
+        或換一個新檔時 resetForNewFile() 重新加回 hidden——避免選檔前／
+        解碼失敗後仍常駐顯示一份空清單＋disabled 分頁按鈕。
+      -->
+      <section class="tool-section" aria-label="幀清單" id="frame-list-section" hidden>
+        <h2>幀清單</h2>
+
+        <!--
+          頁導覽刻意置於清單 <ol> 之前（PLAN §5 換頁契約）：不需先穿越
+          整頁幀列即可翻頁。頁位文字節點兼作可見顯示與 role=status
+          播報（換頁後 T4.3 需同時把焦點移至新頁清單起點）。
+        -->
+        <nav aria-label="幀清單分頁" id="frame-pagination">
+          <button type="button" id="prev-page-button" class="button-like button-like--secondary" disabled>
+            上一頁
+          </button>
+          <p role="status" aria-live="polite" id="page-position-status" class="page-position-status"></p>
+          <button type="button" id="next-page-button" class="button-like button-like--secondary" disabled>
+            下一頁
+          </button>
+        </nav>
+
+        <!--
+          每列契約（T4.3 依此動態產生，本 <ol> 目前為空）：
+            <li class="frame-row"> （未保留時額外加 class="frame-row--excluded" 視覺弱化，見 style.css）
+              <canvas class="frame-row__thumb" aria-hidden="true"></canvas>
+                裝飾縮圖，downscale 最長邊 ~96px；幀身分不靠縮圖傳達
+              <label class="frame-row__keep-label">
+                <input type="checkbox" class="frame-row__keep" checked />
+                保留幀 N
+              </label>
+                → accessible name 為可見文字「保留幀 N」（原生 label 關聯，含幀號）
+              <div class="frame-row__delay-label">
+                <label for="frame-delay-N">幀 N 停留時間（毫秒）</label>
+                <input type="number" id="frame-delay-N" class="frame-row__delay" min="20" step="10" />
+              </div>
+                → label[for]＋獨立 input id（N 為 1-based 全域幀號，不跨頁
+                  重複），不可用 <label> 包裹整組：spinbutton 的
+                  name-from-content 會把現值併入 accessible name，wrap-label
+                  模式下 name 會隨值漂移
+            </li>
+          刪除為非破壞性切換：列不移除、焦點不遷移，delay input 保持可
+          操作（值保留供還原）；未保留列僅靠 checkbox 狀態＋
+          .frame-row--excluded 視覺弱化辨識，不單靠顏色。
+        -->
+        <ol class="frame-list" id="frame-list"></ol>
+      </section>
+
+      <section class="tool-section" aria-labelledby="convert-heading" id="convert-section" tabindex="-1">
+        <h2 id="convert-heading">轉換設定</h2>
+        <div class="options-grid">
+          <div class="option-field">
+            <label for="apply-all-delay-input">全部套用停留時間（毫秒）</label>
+            <input
+              type="number"
+              id="apply-all-delay-input"
+              name="applyAllDelay"
+              min="20"
+              step="10"
+              value="100"
+            />
+            <button type="button" id="apply-all-delay-button" class="button-like button-like--secondary">
+              套用至全部幀
+            </button>
+          </div>
+          <div class="option-field">
+            <span class="option-field__legend">播放次數</span>
+            <label class="loop-infinite-label">
+              <input type="checkbox" id="loop-infinite-checkbox" name="loopInfinite" checked />
+              無限循環
+            </label>
+            <label for="loop-count-input">播放次數（次）</label>
+            <input
+              type="number"
+              id="loop-count-input"
+              name="loopCount"
+              min="1"
+              step="1"
+              value="1"
+              disabled
+            />
+          </div>
+        </div>
+        <button type="button" id="convert-button" class="button-like" disabled>開始轉換</button>
+      </section>
+
+      <!--
+        進度：常駐 role=status（與 apng-to-gif 的差異點——見 style.css
+        header 說明）。#progress-status 這個 role=status 節點本身永不
+        加 hidden；<progress> 本身不是 live region，其顯隱可用 hidden
+        自由切換而不違反「live region 須常駐 a11y tree」不變量。
+      -->
+      <div class="progress-section is-empty" id="progress-section" role="group" aria-label="轉換進度">
+        <progress id="progress-bar" max="100" value="0" aria-label="轉換進度" hidden></progress>
+        <p role="status" aria-live="polite" id="progress-status"></p>
+      </div>
+
+      <!--
+        tabindex="-1"：轉換完成時 T4.3 會對此容器呼叫 focus()，讓焦點
+        移到結果區並由 status 訊息宣告完成（同 apng-to-gif 模式）。
+      -->
+      <section
+        class="tool-section preview-panel"
+        aria-labelledby="result-preview-heading"
+        id="result-section"
+        tabindex="-1"
+      >
+        <h2 id="result-preview-heading">轉換後 GIF 預覽</h2>
+        <img id="result-preview" alt="" hidden />
+        <!-- 結果 poster 獨立產生：來自 applyEdits 後輸出的首個保留幀，不得沿用原始 poster（PLAN §5） -->
+        <canvas id="result-poster" class="poster-canvas" hidden></canvas>
+        <!--
+          download 佔位：href 刻意留空，因下載目標是轉換完成後才產生的
+          blob URL（同 apng-to-gif 模式）；T4.3 顯示前必須同時設定 href。
+        -->
+        <a id="download-link" download hidden>下載 GIF</a>
+        <p id="size-comparison" class="size-comparison" hidden></p>
+      </section>
+    </main>
+    <footer>
+      <p>ClientKit — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>
+        © 2026 alan60910 · <a href="https://github.com/alan60910">GitHub</a> ·
+        <a href="https://github.com/alan60910/ClientKit/blob/main/LICENSE">MIT License</a>
+      </p>
+    </footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

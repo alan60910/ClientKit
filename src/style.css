@@ -1,0 +1,366 @@
+/* ============================================================
+   ClientKit — 共用樣式（入口頁卡片版面 + a11y 基線）
+   通用樣式：入口頁與各 tools/<slug>/ 皆 import 這支檔案，
+   選擇器不得只針對入口頁硬編。
+
+   色彩 token 化：語意化 custom properties 定義於 :root（淺色為預設值）。
+   深色調色盤（--dark-*）單一來源：色值只在 :root 定義一次；
+   下方兩個深色情境（跟隨系統 `@media (prefers-color-scheme: dark)`
+   與使用者手動切換 `:root[data-theme="dark"]`）皆只做
+   `--bg: var(--dark-bg)` 式引用，不得重複色值——避免「深色 OS
+   手選淺色失效」與「雙處定義漂移」兩個經典陷阱。
+
+   色票與對比值（以 WCAG 相對亮度公式估算，AA 一般文字門檻 4.5:1，
+   UI 元件/焦點指示門檻 3:1）：
+
+   淺色（:root 預設）：
+   - 主文字 --fg #1f2328 / 背景 --bg #ffffff             → 對比 ≈ 16.2:1（AA/AAA 皆過）
+   - 次文字 --fg-muted #4b5563 / 背景 #ffffff            → 對比 ≈ 7.6:1（AA 過）
+   - 連結／焦點色 --link #1d4ed8 / 背景 #ffffff          → 對比 ≈ 6.7:1（文字與非文字皆過）
+   - 「規劃中」badge：--badge-fg #374151 / --badge-bg #e5e7eb       → 對比 ≈ 8.3:1（AA 過）
+   - 「可用」badge：--badge-ok-fg #166534 / --badge-ok-bg #dcfce7  → 對比 ≈ 6.5:1（AA 過）
+   - 卡片邊框 --border-strong #d1d5db 為裝飾用（版面已用留白/網格分隔卡片，
+     邊框非唯一辨識手段），不受 1.4.11 3:1 門檻拘束。
+   - 共用主要動作填色 --accent-fill #1d4ed8／白字 --accent-fill-fg #ffffff
+     → 對比 ≈ 6.71:1（AA 過）；hover 填色 --accent-fill-hover #1e40af（原
+     字面值不變）。四個 tools/<slug>/style.css 的 .button-like 等填色元件
+     皆消費這組 token（取代各自原本的 --a2g-btn-bg／--ge-accent／
+     --vc-button-bg／--sb-accent-fill 等本地定義），避免同一組色值與對比
+     計算跨檔重複、漂移。
+
+   深色（--dark-*，於系統偏好或 data-theme="dark" 時引用）：
+   - 主文字 --dark-fg #e6edf3 / 背景 --dark-bg #0f1419        → 對比 ≈ 15.7:1（AA/AAA 皆過）
+   - 次文字 --dark-fg-muted #9ba3af / 背景 #0f1419            → 對比 ≈ 7.3:1（AA 過）
+   - 連結／焦點色 --dark-link #60a5fa / 背景 #0f1419          → 對比 ≈ 7.3:1（文字與非文字皆過）
+   - 「規劃中」badge：--dark-badge-fg #c9d1d9 / --dark-badge-bg #30363d      → 對比 ≈ 7.9:1（AA 過）
+   - 「可用」badge：--dark-badge-ok-fg #86efac / --dark-badge-ok-bg #14532d → 對比 ≈ 6.5:1（AA 過）
+   - 卡片邊框 --dark-border-strong #3d444d 為裝飾用，比照淺色版本，
+     不受 1.4.11 3:1 門檻拘束。
+   - 共用主要動作填色 --dark-accent-fill #2563eb 對頁面深色背景 --dark-bg
+     ≈ 3.58:1（達 UI 元件 3:1 門檻）；白字 --accent-fill-fg 對填色 ≈ 5.17:1
+     （達文字 4.5:1）。hover 填色 --dark-accent-fill-hover #2f6fdb 採「提亮」
+     而非加深策略（加深會使填色塊對頁面背景的對比跌破 3:1）：對 --dark-bg
+     ≈ 3.89:1、白字對填色 ≈ 4.75:1，皆達標。取代原 statusline-builder 深色
+     沿用 #1d4ed8（對 --dark-bg 僅 ≈2.76:1，未達 3:1）的缺陷值，並統一其餘
+     三工具原已各自收斂到的同一組值。
+
+   狀態一律有文字標籤（「規劃中」／「可用」），顏色僅為輔助辨識，
+   不作為唯一區分手段。
+   ============================================================ */
+
+/* ---- 輕量 reset ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ---- 色彩 token：淺色為預設值，:root 為單一定義處 ---- */
+:root {
+  color-scheme: light;
+
+  /* 語意化 token（淺色，全站規則皆引用這組變數） */
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --fg-muted: #4b5563;
+  --link: #1d4ed8;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --surface: #ffffff;
+  --surface-dim: #f9fafb;
+  --badge-bg: #e5e7eb;
+  --badge-fg: #374151;
+  --badge-ok-bg: #dcfce7;
+  --badge-ok-fg: #166534;
+  --shadow-color: rgba(31, 35, 40, 0.12);
+
+  /* 共用主要動作填色 token（四個 tools/<slug>/style.css 的 .button-like 等
+     填色元件共用，取代原本各自的本地 accent token；對比計算見檔頭）。
+     src/style.css 本身不消費這組 token（入口頁無填色主鈕），僅作為
+     單一定義處。 */
+  --accent-fill: #1d4ed8;
+  --accent-fill-hover: #1e40af;
+  --accent-fill-fg: #ffffff;
+
+  /* 深色調色盤單一來源：色值只在此定義一次。
+     下方兩個深色情境只做 --bg: var(--dark-bg) 式引用，
+     不得在別處重複色值（避免雙處定義漂移）。
+     換頁白閃 critical style 於各頁 <head> 內嵌了 --bg/--dark-bg 色值，
+     改值時五頁需同步。 */
+  --dark-bg: #0f1419;
+  --dark-fg: #e6edf3;
+  --dark-fg-muted: #9ba3af;
+  --dark-link: #60a5fa;
+  --dark-border: #30363d;
+  --dark-border-strong: #3d444d;
+  --dark-surface: #0f1419;
+  --dark-surface-dim: #161b22;
+  --dark-badge-bg: #30363d;
+  --dark-badge-fg: #c9d1d9;
+  --dark-badge-ok-bg: #14532d;
+  --dark-badge-ok-fg: #86efac;
+  --dark-shadow-color: rgba(0, 0, 0, 0.4);
+
+  --dark-accent-fill: #2563eb;
+  --dark-accent-fill-hover: #2f6fdb;
+  --dark-accent-fill-fg: #ffffff;
+}
+
+/* ---- 深色情境（跟隨系統）：僅在使用者未手動切換為 data-theme="light"
+   時套用，讓「OS 深色但使用者手選淺色」的覆寫維持有效。
+   注意：本區塊與下方 :root[data-theme="dark"] 的內容須保持同步
+   （皆只引用 --dark-* token，不重複色值）。 ---- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: var(--dark-bg);
+    --fg: var(--dark-fg);
+    --fg-muted: var(--dark-fg-muted);
+    --link: var(--dark-link);
+    --border: var(--dark-border);
+    --border-strong: var(--dark-border-strong);
+    --surface: var(--dark-surface);
+    --surface-dim: var(--dark-surface-dim);
+    --badge-bg: var(--dark-badge-bg);
+    --badge-fg: var(--dark-badge-fg);
+    --badge-ok-bg: var(--dark-badge-ok-bg);
+    --badge-ok-fg: var(--dark-badge-ok-fg);
+    --shadow-color: var(--dark-shadow-color);
+    --accent-fill: var(--dark-accent-fill);
+    --accent-fill-hover: var(--dark-accent-fill-hover);
+    --accent-fill-fg: var(--dark-accent-fill-fg);
+  }
+}
+
+/* ---- 深色情境（使用者手動切換）：與上方 @media 區塊內容
+   須保持同步（見上方注意事項）。 ---- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: var(--dark-bg);
+  --fg: var(--dark-fg);
+  --fg-muted: var(--dark-fg-muted);
+  --link: var(--dark-link);
+  --border: var(--dark-border);
+  --border-strong: var(--dark-border-strong);
+  --surface: var(--dark-surface);
+  --surface-dim: var(--dark-surface-dim);
+  --badge-bg: var(--dark-badge-bg);
+  --badge-fg: var(--dark-badge-fg);
+  --badge-ok-bg: var(--dark-badge-ok-bg);
+  --badge-ok-fg: var(--dark-badge-ok-fg);
+  --shadow-color: var(--dark-shadow-color);
+  --accent-fill: var(--dark-accent-fill);
+  --accent-fill-hover: var(--dark-accent-fill-hover);
+  --accent-fill-fg: var(--dark-accent-fill-fg);
+}
+
+body,
+h1,
+h2,
+h3,
+p,
+ul,
+li {
+  margin: 0;
+}
+ul {
+  list-style: none;
+  padding: 0;
+}
+img,
+svg {
+  max-width: 100%;
+  display: block;
+}
+a {
+  color: inherit;
+}
+/* 讓 `hidden` 屬性語意可靠：作者級 display（如 .color-picker__panel{display:flex}）
+   會蓋過 UA `[hidden]{display:none}`（origin 優先於 specificity）。此 !important
+   規則僅在元素持有 hidden 屬性時作用（移除 hidden 後作者 display 照常接手），
+   跨四工具安全——各工具皆只切布林 hidden、無「保留 hidden 卻用 display 顯示」意圖。 */
+[hidden] {
+  display: none !important;
+}
+
+/* ---- 基礎版面 ---- */
+body {
+  font-family:
+    'Noto Sans TC',
+    'Microsoft JhengHei',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  color: var(--fg); /* 主文字，對比見檔頭 */
+  background-color: var(--bg);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header,
+main,
+footer {
+  max-width: 960px;
+  width: 100%;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+header {
+  padding-block: 2rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+header p {
+  margin-top: 0.375rem;
+  color: var(--fg-muted); /* 次文字，對比見檔頭 */
+  font-size: 1rem;
+}
+
+/* ---- 主題切換鈕（五頁共用：入口頁＋四工具頁 header 尾端；T4.2） ----
+   token-only：不新增色彩字面值，沿用 :root／深色情境既有 token（見檔頭
+   色票與對比計算），故淺／深色兩情境的對比皆已隨全站色票驗證過。 */
+.theme-toggle {
+  display: inline-block;
+  margin-top: 0.75rem;
+  padding: 0.375rem 0.875rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong); /* 裝飾用邊框，對比不受拘束，見檔頭說明 */
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--link);
+}
+
+/* aria-pressed=true（深色主題目前生效）以淺淺的底色差異輔助辨識；
+   顏色僅輔助，實際狀態由 aria-pressed 承載，不單靠顏色區分 */
+.theme-toggle[aria-pressed='true'] {
+  background-color: var(--surface-dim);
+}
+
+main {
+  flex: 1;
+  padding-block: 2rem;
+}
+
+footer {
+  padding-block: 1.5rem 2rem;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted); /* 次文字，對比見檔頭 */
+  font-size: 0.875rem;
+}
+
+/* ---- 工具連結（通用，非僅入口頁） ---- */
+a[href] {
+  color: var(--link); /* 連結色，對比見檔頭 */
+  text-decoration: underline;
+}
+a[href]:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* ---- 入口頁卡片清單 ---- */
+.tool-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 1.5rem;
+}
+
+.tool-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border-strong); /* 裝飾用邊框，見檔頭說明 */
+  border-radius: 0.5rem;
+  background-color: var(--surface);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.tool-card:hover,
+.tool-card:focus-within {
+  border-color: var(--link);
+  box-shadow: 0 1px 4px var(--shadow-color);
+}
+
+/* 規劃中卡片：降飽和但文字對比仍維持 AA（沿用主/次文字色，
+   僅換用淺灰背景，見檔頭對比計算） */
+.tool-card.is-planned {
+  background-color: var(--surface-dim);
+  border-color: var(--border);
+}
+
+.tool-name {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.tool-desc {
+  flex: 1;
+  font-size: 0.9375rem;
+  color: var(--fg-muted); /* 次文字，對比見檔頭 */
+}
+
+.tool-link {
+  color: var(--link);
+  text-decoration: underline;
+}
+.tool-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* 狀態 badge：文字本身即標籤（「規劃中」／「可用」），
+   顏色僅輔助，不作為唯一辨識手段 */
+.tool-status {
+  align-self: flex-start;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background-color: var(--badge-bg);
+  color: var(--badge-fg); /* 對比見檔頭 */
+}
+
+.tool-status--available {
+  background-color: var(--badge-ok-bg);
+  color: var(--badge-ok-fg); /* 對比見檔頭 */
+}
+
+/* ---- a11y：焦點可見性 ----
+   不移除 outline；:focus-visible 提供 2px offset 的明顯焦點框，
+   對比見檔頭（淺色 ≈ 6.7:1／深色 ≈ 7.3:1），同時滿足文字與
+   非文字（UI 元件）門檻 */
+:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+/* ---- a11y：尊重使用者的減少動態偏好 ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+    "types": ["node"]
+  },
+  "include": [
+    "scripts/verify-dist-checks.mjs",
+    "scripts/verify-dist.mjs",
+    "scripts/verify-dist-checks.test.ts",
+    "scripts/publish-public-lib.mjs",
+    "scripts/publish-public.mjs",
+    "scripts/publish-public-lib.test.ts",
+    "scripts/publish-public.test.ts"
+  ]
+}

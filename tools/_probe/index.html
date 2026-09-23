@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Probe - ClientKit</title>
+    <meta name="description" content="Probe — 新增工具的起始骨架範本，用於驗證 Vite 建置管線。" />
+    <!-- 讓瀏覽器在任何 CSS 套用前就能為深色偏好使用者選深色預設畫布（配合下方換頁白閃防護 style）。 -->
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      主題切換 FOUC 防護（(internal design doc) §D4，
+      實文釘死；四個工具頁 byte-identical）：在樣式表套用前先讀
+      localStorage 的手動切換紀錄並補上 data-theme，避免「深色 OS 手選
+      淺色」重整時先閃一下深色 UA 預設。優先次序（localStorage＞系統＞
+      淺色）與 toggle 鈕的 wiring／aria-pressed 同步在 src/theme.ts，
+      main.ts 於任何渲染前 import。
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('clientkit-theme');
+          if (t === 'dark' || t === 'light')
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      /* 防換頁白閃：首繪前先給 html 主題底色（色值須與 src/style.css 的 --bg／--dark-bg 保持同步） */
+      html { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme='light']) { background-color: #0f1419; }
+      }
+      html[data-theme='dark'] { background-color: #0f1419; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="../../">返回 ClientKit</a>
+      <h1>Probe</h1>
+      <button type="button" class="theme-toggle" aria-pressed="false">深色模式切換</button>
+    </header>
+    <main>
+      <p>此頁為工具頁骨架範本，供 build/preview 管線驗證使用。</p>
+    </main>
+    <footer>
+      <p>ClientKit — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>
+        © 2026 alan60910 · <a href="https://github.com/alan60910">GitHub</a> ·
+        <a href="https://github.com/alan60910/ClientKit/blob/main/LICENSE">MIT License</a>
+      </p>
+    </footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

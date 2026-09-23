@@ -1,0 +1,56 @@
+name: Test
+
+# S5-T4.1（PLAN r2.1 §CI 拓撲與 gate 矩陣 C2）：跨平台測試 gate。
+# 觸發＝push DEV（每次開發推送背書）＋PR→main（合併前把關；本檔隨快照鏡像至
+# ClientKit，外部對 ClientKit main 送 PR 時以唯讀 token 同樣觸發本檔）。
+# matrix 兩 leg 對映 gate 矩陣：
+#   - ubuntu-latest → 單元＋黃金＋bash+jq 真執行（harness
+#     tools/statusline-builder/exec-detect-test-utils.ts `detectBash`／
+#     `detectJq` 非 win32 分支以系統 jq 探測；runner 內建 jq，缺則顯式安裝）。
+#   - windows-latest → 單元＋黃金＋ps1 5.1（powershell.exe 內建）＋pwsh 7
+#     （runner 預裝）真執行。
+# skipIf 不變量：每後端至少一 leg 使其為假——ubuntu→bash、windows→ps1 5.1/7；
+# pipeline.integration.test.ts 的 meta 斷言於對應 leg 應綠。
+
+on:
+  push:
+    branches: [DEV]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ubuntu 的 bash+jq 真執行 gate 需系統 jq（harness detectJq 非 win32
+      # 分支以 `jq --version` 探測 PATH）。ubuntu-latest 預裝 jq；缺則安裝保險。
+      # 若此 leg 無 jq，pipeline.integration 的「載重後端 present 卻 skip＝bug」
+      # meta 斷言會轉紅（BASH.ok 需系統 jq）——本步是該不變量的前置保障。
+      - name: Ensure jq (ubuntu bash+jq real-exec gate)
+        if: runner.os == 'Linux'
+        run: jq --version || (sudo apt-get update && sudo apt-get install -y jq)
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test

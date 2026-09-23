@@ -1,0 +1,1910 @@
+/* ============================================================
+   Claude Code Statusline 產生器 — 區域樣式
+   由 main.ts（T3.3）以 `import './style.css'` 消費（在 `import
+   '../../src/style.css'` 之後），僅補充本工具頁特有的元件；不重複
+   src/style.css 已涵蓋的 header/main/footer/連結/焦點/reduced-motion。
+
+   色彩 token 化（T4.1）：凡與 src/style.css 共用 token 同色/同義的
+   硬編碼色，一律改引用 var(--fg)／var(--fg-muted)／var(--link)／
+   var(--border)／var(--surface)／var(--surface-dim)／
+   var(--accent-fill)／var(--accent-fill-hover)／var(--accent-fill-fg)
+   等共用 token（其淺/深對比值已在 src/style.css 檔頭驗算，此處不
+   重算）。主按鈕填色（.button-like、.skip-link 背景＋邊框＋白字）
+   消費共用 --accent-fill／--accent-fill-hover／--accent-fill-fg，
+   不再另立本地 --sb-accent-fill／--sb-accent-fill-hover／
+   --sb-accent-fill-fg（原深色值沿用 #1d4ed8 對 --dark-bg 僅
+   ≈2.76:1，未達 UI 元件 3:1 門檻，已隨改用共用 token 一併修正為
+   #2563eb ≈3.58:1，見 src/style.css 檔頭）。次要按鈕
+   （.button-like--secondary）文字／邊框改共同覆寫為 --link（覆寫
+   繼承自 .button-like 的 --accent-fill 邊框；不採 --accent-fill 是
+   因為深色 --dark-accent-fill 對頁面深色背景僅 ≈3.58:1，未達一般
+   文字 4.5:1 門檻）：淺色 --link 與 --accent-fill 同值 #1d4ed8，
+   渲染像素不變；深色 --dark-link #60a5fa 對頁面深色背景 ≈7.28:1，
+   同時滿足文字 4.5:1 與邊框 3:1 門檻，見下方規則旁註解。無共用對應
+   的本頁專屬色，改為 --sb- 前綴的在地
+   token，深色調色盤（--dark-sb-*）比照 src/style.css 單一來源慣例：
+   色值只在 :root 定義一次，下方兩個深色情境（跟隨系統／手動切換）
+   只做 `--sb-x: var(--dark-sb-x)` 式引用，不重複色值。
+
+   --sb- 在地 token 對比值（WCAG 相對亮度估算，一般文字 AA 4.5:1、
+   UI 元件/焦點 3:1）：
+   - 錯誤方塊：淺色 --sb-error-fg #991b1b／--sb-error-bg #fee2e2
+     ≈ 6.80:1（沿用 apng-to-gif／gif-editor 已驗算值）；深色
+     --dark-sb-error-fg #fca5a5／--dark-sb-error-bg #450a0a ≈ 8.50:1。
+   - 狀態方塊：淺色 --sb-status-fg #1e3a8a／--sb-status-bg #eff6ff
+     ≈ 9.52:1；深色 --dark-sb-status-fg #bfdbfe／--dark-sb-status-bg
+     #172554 ≈ 10.35:1。左側強調邊框沿用共用 --link token。
+   - --sb-row-enabled-bg（啟用列底色，非唯一辨識——checkbox 勾選狀態
+     才是主辨識，見下方 .segment-row--enabled 註解）：淺色 #fbfdff
+     為白底極淺藍調，深色 --dark-sb-row-enabled-bg #111b24 為深色
+     surface（#0f1419）極淺藍調的對應版本，不需個別驗算文字對比
+     （其上文字仍走 var(--fg)，對比見 src/style.css 檔頭）。
+   - --sb-disabled-bg（停用態底色，僅裝飾，控件另有 opacity: 0.6
+     輔助辨識，不受 AA 門檻拘束）：淺色 #f3f4f6，深色
+     --dark-sb-disabled-bg #21262d。
+   - --sb-swatch-border（色票 chip 裝飾性描邊，見下方 .color-swatch__chip
+     註解，用途是讓任意 ANSI 色塊皆可見邊界，非文字/非唯一辨識手段，
+     比照 src/style.css 的 --shadow-color 作法讓 rgba 疊色隨主題調整）：
+     淺色 rgba(31, 35, 40, 0.35)，深色 --dark-sb-swatch-border
+     rgba(0, 0, 0, 0.6)（提高不透明度以維持在深色底上的可見度）。
+   - --sb-code-bg／--sb-code-fg（產出腳本程式碼區塊，見下方
+     .output-block__code 註解）：#1e1e1e／#e6e6e6 ≈ 13.6:1，深色情境
+     刻意沿用同一組值不變——此區塊呈現的是使用者要貼到終端機的原始
+     腳本文字，維持固定的深底色碼區塊觀感（不隨站台淺/深主題切換），
+     與下方「終端模擬」的排版精神一致，但因非 ANSI 派生、非
+     radio 驅動，仍納入 token 架構以避免裸色殘留。
+
+   本檔新增元件（沿用 src/style.css 與 tools/gif-editor/style.css 已
+   驗算之共用色票結構，見上方 token 對應）：
+   - .preview-terminal（終端模擬，深/淺兩色**不**token 化，見下方註解）：
+     --dark 背景 #1e1e1e／文字 #e6e6e6 ≈ 13.6:1；--light 背景 #f6f8fa／
+     文字 #1f2328 ≈ 15.3:1。此為「終端預設」底色，ANSI 著色由
+     render-preview.ts（T3.2）逐 span 覆寫。
+   - 觸控目標（色選 swatch、移位鈕、spinbutton 步進鈕）一律 ≥24×24
+     CSS px（WCAG 2.5.8）。
+   ============================================================ */
+
+/* ---- 本頁在地 token（--sb- 前綴）：無共用 token 對應的專屬色，
+   定義處與對比計算見上方檔頭。深色調色盤（--dark-sb-*）單一來源，
+   下方兩個深色情境只做引用，不重複色值。 ---- */
+:root {
+  --sb-error-bg: #fee2e2;
+  --sb-error-fg: #991b1b;
+  --sb-status-bg: #eff6ff;
+  --sb-status-fg: #1e3a8a;
+  --sb-row-enabled-bg: #fbfdff;
+  --sb-disabled-bg: #f3f4f6;
+  --sb-swatch-border: rgba(31, 35, 40, 0.35);
+  --sb-code-bg: #1e1e1e;
+  --sb-code-fg: #e6e6e6;
+
+  /* 深色調色盤單一來源：色值只在此定義一次，見上方檔頭對比計算 */
+  --dark-sb-error-bg: #450a0a;
+  --dark-sb-error-fg: #fca5a5;
+  --dark-sb-status-bg: #172554;
+  --dark-sb-status-fg: #bfdbfe;
+  --dark-sb-row-enabled-bg: #111b24;
+  --dark-sb-disabled-bg: #21262d;
+  --dark-sb-swatch-border: rgba(0, 0, 0, 0.6);
+  --dark-sb-code-bg: #1e1e1e;
+  --dark-sb-code-fg: #e6e6e6;
+}
+
+/* 深色情境（跟隨系統）：與 src/style.css 同一守衛條件，只引用
+   --dark-sb-* token，不重複色值；須與下方 :root[data-theme='dark']
+   保持同步。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --sb-error-bg: var(--dark-sb-error-bg);
+    --sb-error-fg: var(--dark-sb-error-fg);
+    --sb-status-bg: var(--dark-sb-status-bg);
+    --sb-status-fg: var(--dark-sb-status-fg);
+    --sb-row-enabled-bg: var(--dark-sb-row-enabled-bg);
+    --sb-disabled-bg: var(--dark-sb-disabled-bg);
+    --sb-swatch-border: var(--dark-sb-swatch-border);
+    --sb-code-bg: var(--dark-sb-code-bg);
+    --sb-code-fg: var(--dark-sb-code-fg);
+  }
+}
+
+/* 深色情境（使用者手動切換）：與上方 @media 區塊須保持同步。 */
+:root[data-theme='dark'] {
+  --sb-error-bg: var(--dark-sb-error-bg);
+  --sb-error-fg: var(--dark-sb-error-fg);
+  --sb-status-bg: var(--dark-sb-status-bg);
+  --sb-status-fg: var(--dark-sb-status-fg);
+  --sb-row-enabled-bg: var(--dark-sb-row-enabled-bg);
+  --sb-disabled-bg: var(--dark-sb-disabled-bg);
+  --sb-swatch-border: var(--dark-sb-swatch-border);
+  --sb-code-bg: var(--dark-sb-code-bg);
+  --sb-code-fg: var(--dark-sb-code-fg);
+}
+
+/* ---- a11y：視覺隱藏但保留於 a11y tree / tab order（clip，非 display:none） ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- skip-link：離屏但可鍵盤聚焦，聚焦時顯現於左上角（沿用 gif-editor） ---- */
+.skip-nav {
+  position: relative;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  z-index: 10;
+  padding: 0.625rem 1.25rem;
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg); /* 對比見 src/style.css 檔頭 */
+  border-radius: 0 0 0.375rem 0;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+/* 第二個 skip-link 聚焦時錯開，避免與第一個重疊 */
+.skip-link + .skip-link:focus {
+  left: 11rem;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+}
+
+/* ---- 區塊 ---- */
+.tool-section {
+  margin-bottom: 2rem;
+}
+
+.tool-section h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: 0.75rem;
+}
+
+/* ---- 按鈕（沿用 gif-editor / apng-to-gif 結構與色票） ---- */
+.button-like {
+  display: inline-block;
+  padding: 0.625rem 1.25rem;
+  border: 2px solid var(--accent-fill);
+  border-radius: 0.375rem;
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg); /* 對比見 src/style.css 檔頭 */
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-like:hover {
+  background-color: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
+}
+
+.button-like--secondary {
+  background-color: var(--surface);
+  /* 文字／邊框改共同覆寫為 --link（覆寫繼承自 .button-like 的
+     --accent-fill 邊框）：淺色 --link 與 --accent-fill 同值 #1d4ed8，
+     渲染像素不變；深色 --dark-link #60a5fa 對頁面深色背景 ≈7.28:1，
+     同時滿足文字 4.5:1 與邊框 3:1 門檻，且文字/邊框同色不再雙色，
+     見 src/style.css 檔頭。 */
+  color: var(--link);
+  border-color: var(--link);
+}
+
+.button-like--secondary:hover {
+  background-color: var(--surface-dim);
+}
+
+.button-like[disabled],
+.button-like[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* 無 href 的下載 <a>（main.ts 設 Blob URL 前）不具連結語意，視覺弱化提示尚未就緒 */
+a.button-like:not([href]) {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---- 訊息區：錯誤（role=alert）／狀態（role=status），is-empty 收合（沿用 gif-editor） ---- */
+.alert-message,
+.status-message {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.375rem;
+  border-left: 4px solid;
+}
+
+.alert-message {
+  background-color: var(--sb-error-bg);
+  border-left-color: var(--sb-error-fg);
+  color: var(--sb-error-fg); /* ≈ 6.80:1／深色 ≈ 8.50:1，見檔頭 */
+}
+
+.status-message {
+  background-color: var(--sb-status-bg);
+  border-left-color: var(--link);
+  color: var(--sb-status-fg); /* ≈ 9.52:1／深色 ≈ 10.35:1，見檔頭 */
+}
+
+/* 常駐 live region 收合視覺（不影響 a11y tree 掛載，見 index.html 註解） */
+.alert-message.is-empty,
+.status-message.is-empty {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* ============================================================
+   全域設定
+   ============================================================ */
+.global-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 1rem 1.5rem;
+  align-items: start;
+}
+
+/* fieldset 與非-fieldset 控件群一致外觀 */
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.control-group > legend,
+.control-group > label:first-child:not(.inline-choice) {
+  padding: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.control-subfield {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
+}
+
+/*
+  控件輔助說明（PLAN §D1：Powerline 箭頭「需字型支援」常駐警語＋
+  「全段預設色＋powerline＋無箭頭」無色塊邊界提示）：次文字色小字，
+  非唯一辨識手段，沿用 .segment-lists__hint 同一調性（見下方）。
+*/
+.control-hint {
+  margin: 0.25rem 0 0;
+  color: var(--fg-muted); /* ≈ 7.6:1，見 src/style.css 檔頭 */
+  font-size: 0.8125rem;
+}
+
+/* checkbox/radio 與其文字水平並排（label 包裹＝原生控件，非帶值 textbox） */
+.inline-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+/* 帶值控件（select／text／color）：邊框沿用次文字色（對應共用 --fg-muted，
+   對白底 ≈ 7.6:1，遠高於 3:1，見 src/style.css 檔頭） */
+select,
+input[type='text'] {
+  width: 100%;
+  max-width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0.375rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--fg);
+  background-color: var(--surface);
+}
+
+input[type='text']:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  background-color: var(--sb-disabled-bg);
+}
+
+/* ============================================================
+   Segment 清單（四類分區）
+   ============================================================ */
+.segment-lists {
+  margin-bottom: 2rem;
+}
+
+.segment-lists__hint {
+  margin-bottom: 1rem;
+  color: var(--fg-muted); /* ≈ 7.6:1 */
+  font-size: 0.9375rem;
+}
+
+.segment-section {
+  margin-bottom: 1.75rem;
+}
+
+/*
+  T5.9（(internal design doc) §D3-R4「transfer-list
+  互動（灰化留位）」）：左欄輕量常駐目錄項——checkbox 勾選＝啟用，取消
+  即恢復；本身永不移動（main.ts 一次建置、不重排），故不需 hover 位移
+  等互動樣式，僅需「未加入／已加入」兩態視覺區分。
+
+  T3.3（(internal design doc) §D3 A-1／A-2）：整項現可
+  拖曳（main.ts wireCatalogDragAndDrop）。user-select:none 防同一類
+  regression 重演——T5.13（中欄 .segment-row__enable-field）已記錄：對
+  純文字節點（此處為 .catalog-item__name）按住拖曳易觸發文字選取而非
+  li[draggable] 的元素拖曳，故整項比照排除選字。
+*/
+.catalog-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background-color: var(--surface);
+  user-select: none;
+}
+
+.catalog-item__label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.9375rem;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.catalog-item__name {
+  overflow-wrap: anywhere;
+}
+
+/*
+  已加入態「原位灰化」：沿用既有 --sb-disabled-bg 停用態底色 token（見
+  檔頭 --sb-disabled-bg 對比說明）——刻意不用 opacity 調降整項透明度，
+  因 checkbox 仍可互動（非真正 disabled），opacity 手法易讓使用者誤判
+  控件已鎖定；改用底色＋邊框色區分「已加入」與可用態，文字色不變、
+  對比不受影響。
+*/
+.catalog-item--enabled {
+  background-color: var(--sb-disabled-bg);
+  border-color: var(--fg-muted);
+}
+
+/* 「已加入」徽章：裝飾性視覺標記，aria-hidden——狀態本身由 checkbox
+   原生 checked 語意承載，不重複播報給 AT。 */
+.catalog-item__badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--link);
+}
+
+/*
+  T3.3（(internal design doc) §D2′；TASKS.md T3.3，回饋
+  #5「目錄樣例值」）：compact 列樣例值——淡化純文字（目錄是選單不是
+  預覽，D2′「精度」裁決），與 .catalog-item__badge 顯隱互斥（main.ts
+  buildCatalogItems／syncSegmentEnabledUi 同步）。S2-RESULT.md 溢出防護
+  建議：單行 ellipsis 截斷（windows-cjk 情境長路徑類段可能遠超 FULL
+  mock 樣本長度，見該檔（c）4）——min-width:0 允許 flex 子項縮小至小於
+  內容寬度才能觸發截斷（無此屬性 overflow/text-overflow 對 flex item
+  不生效）。
+*/
+.catalog-item__hint {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.8125rem;
+  color: var(--fg-muted);
+}
+
+/*
+  T5.3（(internal design doc) §排序與列指派 UX）：
+  啟用段依渲染列分組容器（main.ts 動態建立／銷毀）。與四類分區共用
+  .segment-section／.segment-section__heading／.segment-list 樣式（同為
+  地標＋標題＋<ol> 結構，見 index.html template 註解），本規則只補外層
+  掛載點的區塊間距（零列群組時為空，不佔額外視覺高度）。
+*/
+.segment-row-groups:not(:empty) {
+  margin-bottom: 1.75rem;
+}
+
+/*
+  T5.9（(internal design doc) §D3-R4「新增一列
+  （第三修）」）：中欄頂部單一「新增一列」按鈕，與下方列群組保持間距；
+  沿用既有 .button-like--secondary 外觀（見上方按鈕規則），本規則只補
+  區塊間距。
+*/
+.add-pending-row-button {
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+/*
+  UI 暫存空列（純 DOM 態、不進 config）：與真實列群組（.segment-row-group，
+  沿用 .segment-section 樣式）視覺區隔——虛線邊框＋提示文字次要色，傳達
+  「尚未生效、待指派」的暫時性。T5.14（PLAN Rev 11「暫存列位置制」）：
+  暫存列 <div> 改直接插進 #segment-row-groups 內（可落在真實列之間），
+  原 .segment-pending-rows 獨立 flex 容器已移除；列間距沿用 .segment-section
+  的 margin-bottom（1.75rem），不再由容器 gap 提供，故不覆寫為 0。
+*/
+.segment-pending-row {
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--fg-muted);
+  border-radius: 0.5rem;
+}
+
+/*
+  T5.11（(internal design doc) §排序與列指派 UX
+  Rev 6「整列刪除」）：暫存空列標題列——標題＋「刪除此列」鈕同列並排。
+  不加 border-bottom（.segment-pending-row 本身已有虛線外框，避免雙重
+  視覺分隔，與下方 .segment-row-group__heading-row 的實線分區不同）。
+*/
+.segment-pending-row__heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.375rem;
+}
+
+.segment-pending-row__heading-row .segment-section__heading {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.segment-pending-row__delete {
+  flex-shrink: 0;
+}
+
+.segment-pending-row__hint {
+  margin: 0;
+  color: var(--fg-muted); /* ≈ 7.6:1 */
+  font-size: 0.875rem;
+}
+
+.segment-section__heading {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: 0.25rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 2px solid var(--border); /* 分區視覺分隔（裝飾，非唯一辨識手段） */
+}
+
+/*
+  T5.11（PLAN §排序與列指派 UX Rev 6「整列刪除」）：列群組標題列——標題
+  ＋「刪除此列」鈕（或其兩段式確認鈕對）同列並排（justify-content:
+  space-between）。分區視覺分隔的 border-bottom 由本容器承接（涵蓋鈕的
+  整列寬度），其內 .segment-section__heading 須覆寫移除自身
+  border-bottom，避免雙線。
+*/
+.segment-row-group__heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.25rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.segment-row-group__heading-row .segment-section__heading {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.segment-row-group__delete-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.segment-row-group__delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/*
+  T1.7（(internal design doc) §D1「UI」）：逐列分隔符
+  控件——置列群組 header 內、標題列之下。與全域控件（.control-group，
+  預設 flex-column）同構，此處疊加 inline 排列（label＋select 同列）以
+  貼合列 header 的緊湊調性；.segment-row-group__separator-custom-field
+  沿用 .control-subfield 既有 column 版面（label 在上、input 在下），
+  不另覆寫。
+*/
+.segment-row-group__separator-field {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.segment-row-group__separator-field > label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.segment-row-group__separator-preset {
+  width: auto;
+  min-width: 8rem;
+}
+
+.segment-row-group__separator-custom-field {
+  flex-basis: 100%;
+}
+
+.segment-row-group__separator-custom {
+  width: auto;
+  max-width: 10rem;
+}
+
+/*
+  T5.11（PLAN §排序與列指派 UX Rev 6「插入點挪空間視覺」）：拖曳
+  dragover 期間顯示的插入點 placeholder（main.ts showDropGap／
+  ensureDropGap 生成的純 UI 節點——依目的容器型別為 <li>（列群組 <ol>）
+  或 <div>（暫存空列容器），不進 config、drop／dragend 即移除）。高度由
+  0 過渡展開至可視高度，使 .segment-list 的 flex column 佈局讓既有項目
+  隨之平滑挪出空間。**刻意不用 pointer-events:none**——main.ts 為本節點
+  接線自身的 dragover／drop（維持目前插入點、`stopPropagation()`），故
+  需正常接收指標事件；若設 none 讓事件穿透至下層容器，指標一旦靜止於
+  gap 本身可視區塊內（使用者操作上最常見的落點——它正是「放這裡」的
+  視覺提示），會被容器級「空白處＝落列尾」邏輯誤判，導致插入點在使用者
+  未移動指標時自行跳到列尾。`prefers-reduced-motion: reduce` 由
+  src/style.css 全站規則收斂 transition-duration 至 0.01ms，本規則不需
+  另行分支。
+*/
+.segment-drop-gap {
+  height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  background-color: var(--sb-row-enabled-bg);
+  border: 2px dashed var(--link);
+  border-radius: 0.5rem;
+  box-sizing: border-box;
+  transition: height 0.15s ease;
+}
+
+.segment-drop-gap--visible {
+  height: 2.75rem;
+}
+
+/*
+  T5.11（PLAN「一併改善列尾命中區」）：拖曳進行中放寬列群組／暫存列
+  容器的空白處命中區——scoped 至 .segment-row-group .segment-list／
+  .segment-pending-row（刻意不動共用 .segment-list，該 class 亦由左欄
+  目錄使用，見檔頭）；main.ts 於 dragstart 後下一幀（requestAnimationFrame）
+  才加上 body.is-segment-dragging、dragend 移除（T5.6 驗收修復：若在
+  dragstart 派發的同一幀內同步加上，本節規則會令上方列清單立即長高，
+  使非第一列的拖曳來源 li 同幀下移，Chromium 偵測到來源元素於 dragstart
+  期間版面位移即會立即中止原生拖曳，故延後一幀），僅拖曳期間擴大空白處，
+  平時不佔額外留白。
+*/
+body.is-segment-dragging .segment-row-group .segment-list {
+  padding-bottom: 2.5rem;
+  min-height: 2.5rem;
+}
+
+body.is-segment-dragging .segment-pending-row {
+  min-height: 3rem;
+}
+
+.segment-section__desc {
+  margin-bottom: 0.75rem;
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+/* <ol> 語意保留（顯示順序即列序）；視覺不需十進位標記，位置回饋走 live region */
+.segment-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.segment-row {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background-color: var(--surface);
+}
+
+/* 啟用列左側強調邊條（非唯一辨識——checkbox 勾選狀態才是主辨識）；
+   底色 --sb-row-enabled-bg 為極淺藍調，淺/深對應版本見檔頭 */
+.segment-row--enabled {
+  border-left: 4px solid var(--link);
+  background-color: var(--sb-row-enabled-bg);
+}
+
+/*
+  T5.13（2026-07-11 使用者裁決 Rev 8）：整條頂部條 user-select:none——
+  使用者實測回報按住 .segment-row__name 文字易觸發選字而非
+  li.draggable 的元素拖曳。此處刻意含段名（.segment-row__name 本身無
+  互動語意，純視覺標籤，見 index.html 模板註解 3.），**不含**
+  .segment-row__controls（前綴輸入框等仍需可選字，該塊為獨立子樹，不受
+  此規則影響）。
+*/
+.segment-row__enable-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  user-select: none;
+}
+
+/*
+  T5.13：grip 把手（⠿，index.html 模板 aria-hidden 裝飾 span，天然不進
+  tab 序）——僅視覺提示可拖曳，不改變既有 dragstart guard 判定邏輯
+  （main.ts wireDragAndDrop）。cursor:grab／拖曳中 grabbing 呼應
+  li.draggable 的原生拖曳游標語意；顏色沿用 --fg-muted 弱化以不搶段名
+  視覺焦點。
+*/
+.segment-row__grip {
+  cursor: grab;
+  color: var(--fg-muted); /* ≈ 7.6:1 */
+  flex-shrink: 0;
+}
+
+.segment-row__grip:active {
+  cursor: grabbing;
+}
+
+/*
+  T5.5（(internal design doc) §排序與列指派 UX「上／
+  下移鈕位置」）：上/下移鈕移至 enable-field 尾端＋靠右（margin-left:auto
+  將其推至該 flex row 末端）；顯隱由 main.ts 依段啟用態顯式切換 hidden
+  （enable-field 不在 .segment-row__controls 收合塊內，見 index.html 模板
+  註解 10.）。
+*/
+.segment-row__enable-field .segment-row__move {
+  margin-left: auto;
+}
+
+.segment-row__name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+/*
+  停用列收合重控件（PLAN §Builder UI a11y 契約）：停用時整個 controls
+  區 display:none——此處刻意用 display:none，因目的正是「退出 tab 序＋
+  a11y tree」（非 live region，不受「不得 display:none」不變量約束）。
+  啟用（main.ts 加 .segment-row--enabled）才展開。
+*/
+.segment-row__controls {
+  display: none;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+}
+
+.segment-row--enabled .segment-row__controls {
+  display: flex;
+}
+
+.segment-row__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.segment-row__field > label:not(.inline-choice) {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/*
+  T2.2（(internal design doc) §D2「預設值標示」）：欄位
+  「（預設：X）」提示——main.ts appendDefaultHint 掛在 label／mount／
+  disclosure 鈕之後（跨 .segment-row__field label、.color-picker 掛載點、
+  .threshold__toggle 三種上下文共用同一 class，故不限定 .segment-row__field
+  祖先選擇器）。弱字重／縮字級／--fg-muted 與欄位主要 label 文字區隔；
+  現值＝預設時 main.ts syncDefaultHintDims 加 --at-default 進一步降低
+  透明度（選項 C：凸顯偏離預設之欄位，反之現值≠預設時維持較明顯樣式）。
+  aria-hidden（見 appendDefaultHint 文件）：純視覺，不進 accessible name。
+*/
+.segment-row__default-hint {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--fg-muted);
+}
+
+.segment-row__default-hint--at-default {
+  opacity: 0.6;
+}
+
+.segment-row__prefix {
+  width: 8rem;
+  max-width: 100%;
+}
+
+.segment-row__variant {
+  width: 10rem;
+  max-width: 100%;
+}
+
+/*
+  T2.5（(internal design doc) §D1-B′，S3/S4 選型定案）：
+  上/下移鈕群預設視覺收納——opacity:0 + pointer-events:none（S3 於
+  Chromium 實測：零版面躍動——收納/浮現態下所有控件 rect 逐 byte
+  相同；收納態下點擊鈕原位置為 no-op，因 pointer-events:none 使點擊
+  穿透至 <li> 本身；刻意不用 display/visibility，留 Tab 序——Tab 直達
+  鈕本身即令其所屬列浮現）。remove 鈕（.segment-row__remove）不在此
+  收斂範圍——它是 .segment-row__move 的手足元素、非其內部子節點，
+  維持現行「僅啟用列顯示」hidden 切換恆顯，契約只收斂上/下移鈕。
+  浮現：main.ts wireMoveRevealModality 依 document 層
+  mousedown/pointerdown/keydown 模態旗標，於 focusin 落在列內任一控件
+  時對該列（.segment-row）切換 `.row--reveal`。捨棄純 CSS
+  `:has(:focus-visible)`——S3 實測其於 select 滑鼠點擊、列內 prefix
+  文字輸入兩處皆會誤浮現（見 spikes/S3-RESULT.md D1 選型結論），與本
+  收斂目標「滑鼠不浮現」矛盾。
+  「僅啟用列顯示」（main.ts setHidden(moveField, !seg.enabled)）與本
+  收納/浮現態正交——停用列 hidden 屬性觸發 [hidden]{display:none!
+  important}（見 src/style.css reset），優先蓋過本規則的 opacity，
+  不會互相打架。
+*/
+/* 移位鈕橫排 */
+.segment-row__move {
+  flex-direction: row;
+  gap: 0.375rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.segment-row.row--reveal .segment-row__move {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/*
+  T5.4（(internal design doc) §D2「列選擇 UI」）：
+  「顯示於第 N 列」select 沿用既有 .segment-row__variant 寬度慣例。
+  T5.9：旁掛的獨立「新增一列」按鈕（原 .segment-row__row-controls 橫排
+  wrapper）已移除，select 直接置於 .segment-row__field 內。
+*/
+.segment-row__row-select {
+  width: 8rem;
+  max-width: 100%;
+}
+
+/*
+  powerline 前景覆寫色選：預設隱藏，僅 powerline 模式顯示。
+  main.ts 於 <body> 設 data-mode="plain|powerline"（全域），CSS 據此切換。
+*/
+.segment-row__fg-mount {
+  display: none;
+}
+
+body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
+  display: flex;
+}
+
+/* 閾值掛載點佔整行（百分比段） */
+.segment-row__threshold-mount {
+  flex-basis: 100%;
+}
+
+/* ---- 圖示鈕（移位／spinbutton 步進）：≥24×24 CSS px（WCAG 2.5.8） ---- */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem; /* 28px ≥ 24 */
+  min-height: 1.75rem;
+  padding: 0.25rem;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0.375rem;
+  background-color: var(--surface);
+  color: var(--fg);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  border-color: var(--link);
+  background-color: var(--surface-dim);
+}
+
+/*
+  T5.6 驗收回歸修復（2026-07-11）：原生 disabled 表單控件是拖放死區——
+  瀏覽器對 disabled 元素完全不派發滑鼠事件（mousedown/click 等），且**不會
+  冒泡至祖先**（已以 CDP 真實輸入實測驗證：滑鼠落於 disabled 鈕範圍內時，
+  連承載 `li.draggable` 的祖先都收不到 mousedown，遑論 dragstart）。列末段
+  的下移鈕（refreshMoveButtonStates 恆 disable 該列最後一段）恰位於
+  .segment-row__enable-field 頂部條右側，使用者按在該鈕範圍內起手拖曳會
+  完全無反應——與回報症狀「最後一段頂部間歇性無法拖移（視按壓位置而定）」
+  精確吻合。
+  修法：`pointer-events: none` 讓該死區的指標事件穿透至下層祖先（.segment
+  -row__move → .segment-row__enable-field → li），使 mousedown 得以照常
+  冒泡、原生拖放判定得以正常起手；guard（wireDragAndDrop 內
+  `target.closest('input, select, button, ...')`）此時因 event.target 已
+  變為非 button 的祖先節點而不再攔截。刻意不改用 aria-disabled（會連帶
+  改變 tab 序，偏離 T5.5「disabled 維持可見」的既定語意）——本規則不動
+  `disabled` 屬性本身，鍵盤 tab 序／輔助技術「已停用」播報皆不變，代價
+  僅是滑鼠懸停於鈕本身範圍時不再顯示 not-allowed 游標（改顯示其祖先的
+  游標，通常為預設箭頭或 grip 的 grab）。
+*/
+.icon-button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* ============================================================
+   色選（SP-6 pattern B：16 swatch＋spinbutton＋原生 color）
+   ============================================================ */
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  min-width: 0;
+}
+
+.color-picker__legend {
+  padding: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.color-picker__modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+.color-picker__panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding-top: 0.25rem;
+}
+
+/* ---- 16 基本色 swatch（main.ts 生成，見 index.html template 註解） ---- */
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  max-width: 300px; /* SP-6：wrap 版面窄視口內收 */
+}
+
+/* 每 swatch＝<label><input radio（視覺隱藏但可聚焦）><span chip></label> */
+.color-swatch {
+  position: relative;
+  display: inline-flex;
+}
+
+.color-swatch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+}
+
+.color-swatch__chip {
+  display: block;
+  width: 1.5rem; /* 24px 觸控下限（WCAG 2.5.8） */
+  height: 1.5rem;
+  border: 1px solid var(--sb-swatch-border); /* 讓任意 ANSI 色塊皆可見邊界，見檔頭說明 */
+  border-radius: 0.25rem;
+  /* background-color 由 main.ts 依 ANSI 索引 inline 設定 */
+}
+
+/* 選中／聚焦環（focus 掛在 chip 上，因 input 視覺隱藏） */
+.color-swatch input:checked + .color-swatch__chip {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.color-swatch input:focus-visible + .color-swatch__chip {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* ---- 自訂 spinbutton（原生 number 無法承載 aria-valuetext，見 SP-6） ---- */
+.color-spinbutton-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.color-spinbutton-field__label {
+  font-size: 0.8125rem;
+  color: var(--fg);
+}
+
+.color-spinbutton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.color-spinbutton__step {
+  min-width: 1.5rem; /* 24px */
+  min-height: 1.5rem;
+  padding: 0;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0.25rem;
+  background-color: var(--surface);
+  color: var(--fg);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.color-spinbutton__step:hover {
+  border-color: var(--link);
+}
+
+.color-spinbutton__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.5rem; /* SP-6：spinbutton min 56×24 */
+  min-height: 1.5rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0.25rem;
+  background-color: var(--surface);
+  font-variant-numeric: tabular-nums;
+  cursor: text;
+}
+
+.color-swatch--preview {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--sb-swatch-border);
+  border-radius: 0.25rem;
+  /* background-color 由 main.ts 即時反映當前 ANSI 索引色 */
+}
+
+.color-picker__native {
+  width: 3rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0.375rem;
+  background-color: var(--surface);
+  cursor: pointer;
+}
+
+/* ============================================================
+   閾值編輯器（disclosure）
+   ============================================================ */
+.threshold {
+  width: 100%;
+}
+
+/* disclosure 觸發鈕（<button aria-expanded>）＋展開指示三角 */
+.threshold__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0.375rem;
+  background-color: var(--surface);
+  color: var(--fg);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.threshold__toggle:hover {
+  border-color: var(--link);
+}
+
+.threshold__toggle::before {
+  content: '▸';
+  display: inline-block;
+  font-size: 0.75rem;
+  transition: transform 0.15s ease;
+}
+
+.threshold__toggle[aria-expanded='true']::before {
+  transform: rotate(90deg);
+}
+
+.threshold__panel {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background-color: var(--surface-dim);
+}
+
+.threshold__template-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-width: 20rem;
+  margin-bottom: 1rem;
+}
+
+.threshold__template-field > label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* 10 桶（main.ts 生成：label「0–9%」…＋色選 clone），窄視口不橫向溢出 */
+.threshold__buckets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+/* ============================================================
+   即時預覽頂帶（sprint 15 T2.2，(internal design doc)
+   PLAN.md §D1／§D2／§D5；spikes/S-a-RESULT.md「七、MS2 施工指令」1–2。
+   取代 sprint 14 T2.1「預覽降級入三欄中欄」——本批復位為 `<main>` 直接
+   子節點的**全寬 sticky 頂帶**，本節保留：頂帶 sticky 定位與繪序、
+   40dvh 高度上限（掛頂帶自身）、內容排版。三欄 grid／兩欄獨立捲動／
+   斷點規則見下方「四區版面」節。）
+   ============================================================ */
+
+/*
+  頂帶（`#preview-section`）：**全斷點 sticky**（D1 A2 定案；行動版的
+  垂直壓力由 D8 目錄收合吸收，MS3）。捲動模型 M1′-a——頂帶為 `<main>`
+  的直接子節點，故其 sticky 包含塊＝main 的 content box，位移餘裕
+  ≈550px（1280×800 實算）＞黏住所需捲距 268px，「捲過頁首後
+  `rect.top === 0`」成立（S-a T1／T2 門檻 4/4）。
+
+  `max-height: 40dvh`（D1「頂帶整體 ≤40dvh」，sprint 09 A-1 原文契約）：
+  上限掛**頂帶自身**，超出量由 `.preview-terminal` 內捲吸收——本批同時
+  撤除該框的 `max-height:40dvh`（見下方該規則），因為「框自帶 40dvh」
+  會使頂帶總高＝其他內容＋40dvh、必然突破自己的上限（PLAN §D1 連帶
+  實作指令）。兩者是同一決策的兩面，不得只改一邊。刻意**不**加
+  `overflow:hidden`：頂帶內全是互動控件，裁切會連焦點框一起切掉；
+  S-b 實測最壞組態（390×844、5 列 powerline）封頂後終端框仍得 3.87 行，
+  非終端框內容不會溢出上限。
+
+  `background-color` 保留：頂帶不透明才擋得住其下方捲過的內容（兩欄
+  sticky 於 `top: var(--band-h)` 正貼在頂帶下緣）。
+
+  MAGI review 🟡-4（sprint 14 續行）：`z-index: 2` 繪序保護——DOM 序在
+  本節點之後的 positioned 後代（例如 `.color-swatch`）若無此宣告會依
+  預設繪序疊繪於本節點之上、遮蓋 sticky 預覽。值必須 **<10**：
+  `.skip-link` 為 `z-index:10`，sprint 15 T2.1 把 skip-nav 提升到
+  `<main>` 開頭後，其聚焦時的絕對定位顯現位置正落在頂帶覆蓋區——頂帶
+  若 ≥10 會蓋掉聚焦中的 skip-link，直接抵銷該補償（PLAN §D2 頂帶
+  z-index 值域）。
+*/
+.preview-section {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  width: 100%;
+  min-width: 0; /* 防 .preview-terminal 的 overflow-x 內容把頂帶撐破（頂帶為 main 的 block 子節點，此宣告亦保護 flex 內縮） */
+  max-height: 40dvh; /* sprint 15 T2.2：40dvh 預算自 .preview-terminal 遷回頂帶自身，見上方論證 */
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg);
+}
+
+/*
+  頂帶內容排版：不置中（無 max-width／margin-inline:auto）——頂帶寬度
+  即 `<main>` 的內容寬（本頁 ≥1100px 已 local override 至 1360px／
+  ≥1400px 至 1800px，見下方四區版面節），預覽本體是一條很長的單行，
+  全寬正是本批的立論之一（PLAN §Context 缺陷 3：中欄約 36% 寬只容
+  40–55 等寬字元，全寬頂帶約 145–195 字元）。
+  `min-height: 0`：本節點是頂帶（flex column）的可收縮項——頂帶封頂
+  40dvh 時，收縮須一路傳遞到 .preview-terminal 才生效，中間任一層
+  留著預設 `min-height:auto` 都會卡死這條鏈。
+*/
+.preview-section__inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  padding: 0.75rem 0;
+  gap: 0.375rem;
+}
+
+.preview-section h2 {
+  margin-bottom: 0;
+  font-size: 1.0625rem;
+}
+
+/*
+  T4.1「控件收斂單列緊湊形」：底色／情境兩組 segmented control＋產出
+  腳本佔位鈕同列排列（flex-wrap 允許窄視口換行，見 T4.4 真機驗收
+  390×844 目視項）。
+*/
+.preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.preview-controls__output-open {
+  margin-left: auto;
+  padding: 0.375rem 0.875rem;
+  font-size: 0.875rem;
+}
+
+/*
+  segmented control 視覺（PLAN D4 A-1「收斂為單列緊湊形」，實作變體 A：
+  短文字 pill）：<fieldset><legend> 群組語意保留，legend 視覺上 sr-only
+  （群組名仍在 a11y tree，只是不佔版面——與各 option 的可見縮寫＋
+  aria-label 全文並用，見 index.html 逐一註解）。
+*/
+.segmented-group {
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+}
+
+.segmented-control {
+  display: inline-flex;
+  border: 1px solid var(--fg-muted);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.segmented-control__option {
+  position: relative;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  gap: 0.25rem;
+}
+
+.segmented-control__option:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+/* 視覺選中態呼應（原生 checked 語意仍由 input 承載，本規則僅視覺） */
+.segmented-control__option:has(input:checked) {
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg);
+}
+
+/* input 視覺隱藏但仍可聚焦（同上方 .color-swatch input 技法） */
+.segmented-control__option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+}
+
+.segmented-control__option:has(input:focus-visible) {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+/*
+  變體 B（T4.1 兩版截圖比較用，`.preview-band--variant-b`——加在
+  #preview-section 上；非 production 切換入口，僅供使用者於兩版截圖間
+  擇一，見 T4.1 report）：options 進一步壓縮為 icon-only 密集列，可見
+  文字 clip 隱藏（技法同 .sr-only），改以 data-icon 內容呈現。
+*/
+.preview-band--variant-b .segmented-control__option {
+  padding: 0.375rem 0.625rem;
+  min-width: 2rem;
+  justify-content: center;
+}
+
+.preview-band--variant-b .segmented-control__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.preview-band--variant-b .segmented-control__option::before {
+  content: attr(data-icon);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.preview-band__mock-hint {
+  margin: 0;
+}
+
+/*
+  終端模擬框（role="group"，M4：render-preview.ts 由 role="img" 重構而來，
+  內部每列另掛一個 role="img" 子容器——見該檔案職責 2）：等寬字＋橫向捲動
+  （長狀態列不撐破版面）。字型資產已刪除（(internal design doc)
+  PLAN §D1 Round 2），退回系統等寬 fallback；此處 font-family 字族棧為
+  唯一事實來源（T4.2 已移除 render-preview.ts 原本以 inline style 蓋掉
+  本字族棧的 `applyPreviewFontFamily` 死重，CSS fallback 鏈直接生效）。
+
+  sprint 15 T2.2（PLAN §D1 連帶實作指令；S-a-RESULT.md「七」1）：本框的
+  40dvh 上限**已撤除**，該預算改掛頂帶整體（見上方 `.preview-section`）；
+  本框轉為「頂帶內唯一可壓縮項」——`flex: 1 1 auto` 佔剩餘空間、
+  `min-height: 0` 解除 flex item 預設的 `min-height:auto`（＝內容高）以
+  允許壓縮，超出量由自身 `overflow-y` 內捲吸收。同批撤除 sprint 09 起的
+  `min-height: 3rem` 空框視覺下限：留著它會在極矮視窗成為壓縮鏈的死點
+  （頂帶因此突破自己的上限），而 render-preview.ts 於任何狀態（含全隱藏
+  `[[]]`）都會渲染至少一列子容器，實務上不會塌成 0 高度。
+  （本段刻意寫在規則**之外**：版面 dom 案以「規則區塊原始文字」比對
+  屬性歸屬，區塊內若出現屬性名字樣會造成誤判。）
+*/
+.preview-terminal {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: auto; /* T2.1 起為唯一捲動停點（見 index.html #preview-section 節點註解「條件式捲動停點」判定） */
+}
+
+/*
+  T4.1 排除項（(internal design doc) PLAN §D4／TASKS T4.1 明文）：
+  預覽終端框底色模擬「使用者實際終端」的深／淺兩色，由本頁「預覽底色」
+  radio 獨立驅動，與站台深/淺主題無關——刻意維持硬編碼色，不套用
+  --bg/--dark-* 等站台 token。
+*/
+.preview-terminal--dark {
+  background-color: #1e1e1e;
+  color: #e6e6e6; /* 對 #1e1e1e ≈ 13.6:1（終端預設前景，ANSI 由 span 覆寫） */
+}
+
+.preview-terminal--light {
+  background-color: #f6f8fa;
+  color: #1f2328; /* 對 #f6f8fa ≈ 15.3:1 */
+}
+
+/*
+  powerline 箭頭三角形（PLAN §D1 Round 2）：字型刪除後 PUA glyph 必為豆腐，
+  改以 CSS clip-path 三角形渲染箭頭視覺；aria 由既有 ariaText=''（resolve.ts）
+  經 toAriaLabel 承載，本元素 aria-hidden、不含任何文字節點。外層 span 的
+  background-color 由 render-preview.ts inline 設為過渡目標色（run.bg；cap
+  箭頭無 bg → 不落屬性＝透明，退回終端底色）；`::before` 為三角形本體，讀
+  render-preview.ts 掛的 `--arrow-fg` CSS 變數（run.fg），以 clip-path 裁出
+  右尖三角（PUA glyph 原視覺方向）。
+
+  T4.1 排除項：--arrow-fg 由 render-preview.ts 依 ANSI run.fg 逐一設定，
+  屬「ANSI 著色派生」樣式，模擬終端輸出而非站台 UI，不套用站台 token。
+*/
+.preview-terminal__arrow {
+  position: relative;
+  display: inline-block;
+  width: 0.6em;
+  height: 1.6em; /* 對齊 .preview-terminal line-height:1.6，避免與相鄰文字高度不一 */
+  vertical-align: bottom;
+}
+
+.preview-terminal__arrow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  background-color: var(--arrow-fg, currentColor);
+}
+
+/* ============================================================
+   產出腳本（T4.2：單一按鈕收斂進 <dialog>，取代 T4.1 過渡期的內嵌區塊）
+   ============================================================ */
+dialog.output-dialog {
+  box-sizing: border-box;
+  width: min(90vw, max(640px, 55vw), 72rem);
+  max-height: min(85dvh, 60rem);
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background-color: var(--bg);
+  color: var(--fg);
+  overflow-y: auto;
+}
+
+/* 未支援 showModal 的 fallback 路徑（main.ts openOutputDialog 設 open 屬性、
+   非真模態）：無 ::backdrop 可套用，此規則僅在真模態時生效，無害。 */
+dialog.output-dialog::backdrop {
+  background-color: rgb(0 0 0 / 50%);
+}
+
+/*
+  T4.4 spike micro-fix（sp1/T4.4-report.md「四」節 fallback 決策句，
+  2026-07-17 落地）：完全不支援 `<dialog>` 的瀏覽器（如 iOS Safari
+  <15.4）沒有原生 `dialog:not([open]) { display: none }` UA stylesheet
+  規則——若不補一條同義的作者規則，這類瀏覽器會在使用者按下「產出腳本」
+  之前，就讓本檔已授權樣式化的 `dialog.output-dialog`（width／padding／
+  border 等）以一般 block 元素之姿常駐可見。對已支援的瀏覽器（含本專案
+  fallback 特徵偵測時仍會呼叫的 `setAttribute('open','')`／
+  `removeAttribute('open')`，main.ts openOutputDialog／closeOutputDialog）
+  此規則與原生規則同義、無副作用。
+*/
+dialog.output-dialog:not([open]) {
+  display: none;
+}
+
+.output-dialog__footer {
+  margin-top: 1rem;
+}
+
+.output-block {
+  margin-bottom: 1.5rem;
+}
+
+.output-block:last-child {
+  margin-bottom: 0;
+}
+
+.output-block__heading {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: 0.5rem;
+}
+
+.output-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/*
+  <pre tabindex="0">：可鍵盤聚焦捲動（WCAG 2.1.1），橫向捲動不撐破版面。
+  底色 --sb-code-bg／--sb-code-fg 已納入 token 架構，但深色情境刻意沿用
+  同一組值（見檔頭說明）：此區塊呈現使用者要貼到終端機的原始腳本文字，
+  維持固定深底色碼區塊觀感，不隨站台淺/深主題切換。
+*/
+.output-block__code {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  background-color: var(--sb-code-bg);
+  color: var(--sb-code-fg); /* ≈ 13.6:1，見檔頭 */
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.output-block__code:empty {
+  display: none;
+}
+
+.output-block__code code {
+  font-family: inherit;
+  color: inherit;
+  white-space: pre;
+}
+
+/* ============================================================
+   響應式：窄視口不橫向溢出
+   ============================================================ */
+@media (max-width: 480px) {
+  .segment-row__controls {
+    gap: 0.75rem;
+  }
+
+  .segment-row__prefix,
+  .segment-row__variant {
+    width: 100%;
+  }
+
+  .color-swatches {
+    max-width: 100%;
+  }
+}
+
+/*
+  注：:focus-visible 焦點框、prefers-reduced-motion 皆由 src/style.css
+  全站規則涵蓋（reduced-motion 會停用上方 .threshold__toggle::before 的
+  transform 過渡）；本檔不重複定義。
+*/
+
+/* ============================================================
+   四區版面（sprint 15 T2.2，(internal design doc)
+   §D1／§D2／§D3／§D7；spikes/S-a-RESULT.md「七」、S-g-RESULT.md「MS2
+   CSS 指令」、S-j-RESULT.md「五」。取代 sprint 14「三欄同框」——本批
+   版型為：
+
+     頂＝即時預覽（全寬 sticky 頂帶，`<main>` 直接子節點，見上方節）
+     下＝`.builder-columns` 三欄：目錄｜列區（★最寬）｜設定
+
+   結構契約（G3）：`<main>` 為一般 block；skip-nav → #output-status／
+   #error-message → 頂帶 → `.builder-columns` 皆為其直接子節點，**只有
+   三欄**在 wrapper 內。三欄依 DOM 序落格，零 CSS `order`、零 JS 搬移、
+   三欄本身不指名 grid-area／grid-column → **DOM 序＝視覺序＝Tab 序**，
+   兩斷點共用同一份 DOM 序。sprint 14 為「main 即 grid」而設的
+   `#output-status{grid-column:1/-1}` 隨之作廢（本批已無 grid 父層可
+   跨，見 index.html 該節點註解）。
+
+   D7 層疊紀律：本節所有**斷點相依**的宣告一律寫在 `@media` 區塊內
+   （全檔恰**兩個** `@media (min-width: 1100px)` 區塊：下方本節主要
+   桌面規則一塊，另一塊在 D8 目錄收合節承載「桌面態隱藏 summary」，
+   見該節自身註解），media 之外**不留任何**會被行動版覆寫的基準
+   規則——這是 sprint 14
+   🔴-1（基準規則寫在 media 外、源序後到而整條蓋掉行動版解除規則、
+   1932 案全綠仍假綠）的根治法：<1100px 天然不落入任何規則、literal
+   回歸文件流，故也不需要一條「解除」規則（沒有規則可解除）。對應的
+   測試斷言一律採**歸屬斷言**（規則字面落在哪個 media 區塊內），禁
+   「規則存在性」比對，見 layout-columns.dom.test.ts。
+   ============================================================ */
+
+/* 三欄 wrapper 與三欄本身的 min-width:0（不分斷點）：grid/flex item
+   預設 `min-width: auto` 會被子孫的最小內容寬撐破（.preview-terminal／
+   .output-block__code 等雖已 overflow-x:auto，仍需要欄自身可收縮）；
+   <1100px 的單欄堆疊亦無害。頂帶自身的 min-width:0 見上方頂帶節。 */
+.builder-columns,
+.builder-columns__catalog,
+.builder-columns__list,
+.builder-columns__settings {
+  min-width: 0;
+}
+
+/*
+  三欄 wrapper 恆為 grid：<1100px 未指定 `grid-template-columns` → 單軌
+  單欄堆疊，順序即 DOM 序（目錄→列區→設定，G3），`row-gap` 提供欄間
+  垂直間距（三欄各自的末端 margin 不一致，靠 gap 統一）；≥1100px 由
+  下方 media 區塊補上三軌與 column-gap。本規則**不**與任何斷點規則
+  競爭同一屬性（media 內只設 grid-template-columns／column-gap／
+  align-items），故不落入 D7「成對規則須明式包裹」的範圍。
+*/
+.builder-columns {
+  display: grid;
+  row-gap: 2rem;
+}
+
+/*
+  `--band-h`＝頂帶（`#preview-section`）的即時渲染高度，由 main.ts
+  `syncBandHeight()`／`wireBandHeightObserver()` 寫在 `<main>` 元素上
+  （**不掛 `:root`**，S-a 三項防護 (b)：把變數的作用域限縮在真正消費它
+  的子樹內，避免與其他頁面級變數互相干擾、也避免 RO 回寫觸及
+  documentElement 樣式而擴大重排面）。下方兩欄的 `top` 與 `max-height`
+  是它唯一的消費點。
+
+  為何是 JS 量測而非 CSS 固定值（S-a-RESULT.md「四」實測否決 D6 的
+  「CSS 原生」傾向）：頂帶高度有**兩條獨立變動軸**——(a) 終端框列數
+  1–5（核心可調功能，桌面 150.2→231.8px、行動 261.2→337.6px）；
+  (b) viewport 寬度造成的控制列換行（390px 寬即使 1 列也比桌面 3 列
+  基準高 69.2px）。任何單一固定值都必然在「遮蔽欄頭」與「G9 級垂直
+  浪費（桌面 1 列情境浪費 ~170px）」之間二選一，且 CSS 無原生機制可讓
+  sticky 元素的 `top` 動態繫結另一個 sibling 的即時高度。
+
+  後備值 `192px`（S-a-RESULT.md「七」3 指定）：main.ts 尚未執行、或
+  極舊環境無 ResizeObserver 時的 progressive-enhancement 起點（1280×800
+  三行終端框校準值無條件進位）。此工具本身無 JS 即無法運作，該後備只
+  需覆蓋「首繪一瞬間」，非出貨門檻。
+
+  `scrollbar-gutter: stable` **不加**（S-a 三項防護 (c) 的條件式指令，
+  本批判定條件不成立）：該防護針對「欄捲軸出現 → 版面寬度變化 → 頂帶
+  換行 → 頂帶高度變化 → 欄 max-height 變化」的回饋迴圈。本版型下兩欄
+  的捲軸長在 grid 軌**內**，不改變 `.builder-columns` 與頂帶的寬度
+  （頂帶是 `<main>` 的 block 子節點、寬度只隨文件層捲軸與視窗寬變動，
+  而文件層捲軸在本頁恆存在），故該迴圈無成立路徑。若日後版型改為
+  「頁面本身不捲」（M2 類）或欄寬回饋到 main 寬度，須重新評估此決定。
+*/
+
+@media (min-width: 1100px) {
+  /*
+    全站基線 max-width:960px（src/style.css:203-210）於多欄下空間過窄，
+    .threshold__buckets（本檔單桶 min-width 260px）每行剩 1 桶、10 桶
+    閾值編輯器高度暴增（PLAN §D3 Rev 2 釘死、D3-R4 沿用，T4.1／T2.1
+    沿用同一理由）。本頁 local override 於此斷點放寬至 ~1360px
+    （header／main／footer 同步以維持左右邊界對齊）；≥1400px 再放寬至
+    ~1800px（見下，僅寬度上限微調，不再新增欄位）。<1100px 不套此
+    規則、回落全站 960px 基線；不動 src/style.css。sprint 15 起頂帶為
+    全寬（吃 `<main>` 內容寬），本組覆寫連帶決定頂帶可容納的字元數
+    （PLAN §Context 缺陷 3 的量化基礎）。
+  */
+  header,
+  main,
+  footer {
+    max-width: 1360px;
+  }
+
+  /*
+    三欄並列（D3 軌寬，S-j-RESULT.md「五之 1」定案值，可直接抄）：
+    目錄 : 列區 : 設定 ＝ 1 : 1.6 : 0.9（PLAN 初始候選比例不變），
+    目錄欄加 **340px 安全下限**——原始候選 `1fr 1.6fr 0.9fr` 在
+    1280×800（本 sprint 兩個門檻 viewport 之一）實得 334px，使 P90 級
+    樣例值（`cwd`／`project-dir`）截斷 2/30；340px＝自然內容寬
+    339.484375px 無條件進位（逐 px 二分搜尋出的過關邊界為 339px）。
+    `minmax()` 混合方案只在窄 viewport 真正需要時才動用下限，1400×1000
+    等寬 viewport 逐位元維持原始候選比例，對列區／設定欄的犧牲最小。
+    列區（1.6fr）在所有測試組合中恆為三欄最寬＝G7 上位約束成立。
+
+    〔S-j「五之 2」裁量回填（本批決定：**維持 340px，不升 410px**）〕
+    en locale 的段名（label）較寬，340px 下會有 5/30 段的**樣例值提示**
+    截斷（雙語零截斷需 410px）。維持 340px 的理由：(a) 門檻本以
+    sprint 14 S2 的 zh-Hant dump 為量測基準，字面已達成；(b) 被截斷的
+    是 `.catalog-item__hint`——裝飾性、`aria-hidden`、有 ellipsis 優雅
+    降級，段名本身不截斷，功能不受損；(c) 升 410px 會讓本站預設 locale
+    （zh-Hant）的使用者在窄 viewport **永久**多讓出 70px 給目錄欄，
+    直接侵蝕使用者親自定案「必須最寬」的列區；(d) en 的根因是目錄項
+    排版（label 佔寬），該由目錄項本身處理（hint 換行／字級／縮短
+    label），不該由軌寬硬扛。留待 MS3／BACKLOG 依真機雙語使用比例覆核。
+
+    三欄本身**不**指名 grid-area／grid-column：交由 auto-placement 依
+    DOM 序落左中右（PLAN §G3「零 CSS order、零 JS 搬移」的字面落地）。
+    `align-items: start` 避免 stretch（三欄各自高度不同，且兩欄要靠
+    自身 max-height 成為捲動容器，stretch 會使高度被拉齊而失效）。
+  */
+  .builder-columns {
+    display: grid;
+    grid-template-columns: minmax(340px, 1fr) 1.6fr 0.9fr;
+    column-gap: 2rem;
+    align-items: start;
+  }
+
+  /*
+    D2 捲動所有權（S-a-RESULT.md「七」2；S-g-RESULT.md「MS2 CSS 指令」）：
+    目錄欄與列區各自為**獨立捲動容器**——本批的承重不變量「拖曳的來源與
+    目標分屬獨立捲動容器」（PLAN §Context 缺陷 1／G4）就落在這條規則上。
+
+    ・`top: var(--band-h)`（**非** `top: 0`）：頂帶不透明且帶 z-index，
+      `top:0` 會讓欄頂被頂帶蓋住，而被蓋住的正是 G4 的拖曳來源與落點。
+    ・`max-height: calc(100dvh - var(--band-h))`：**單項扣除**（只扣
+      頂帶、不扣頁首）——PLAN §二「預算式定案」：扣頁首得 ~314px、離
+      G9 門檻更遠，且在穩態（頁首已捲離）是憑空浪費一整個頁首高；單項
+      扣除得 ~550px ✅，初載溢出由 sticky 本身消解。
+    ・`overscroll-behavior: contain`：**兩欄皆掛**（S-g 定案組態 O1）。
+      門檻＝可捲命中面積 ≥30%，三組態×兩狀態 6/6 全過（最低 77.8%），
+      PLAN 原文「未達 30% → 不得同時掛 contain」的禁止條件未觸發；
+      死區精確侷限於「該欄已捲到底＋游標正停在該欄上」的交集（9 點中
+      2 點），其餘面積與鍵盤側皆有替代路徑。
+    ・已知殘差（N4，S-a 候選 2「接受並量化」）：欄自身 sticky 的 travel
+      ＝wrapper 高 − 欄高 ＝ 0，故頁面捲到 max-scroll 時欄頭會被頂帶蓋住
+      約 134.156px（1400×1000 與 1280×800 實測逐位元相同；e2e 容許
+      ≤140px）。候選 1（wrapper 補償高）已由數學推導＋兩輪實測證偽
+      （`builderColumns.bottom` 在 max-scroll 時與自身高度無關），故本節
+      **刻意不寫**任何補償高規則。<1100px 不適用此殘差（欄非 sticky，
+      現象為自我修復的「捲動穿越」，量測上界約一個目錄項高度 ~29px）。
+
+    D7 層疊歸屬：本規則**只**存在於本 `@media (min-width: 1100px)` 區塊
+    內，media 之外不留任何 sticky 基準規則——<1100px 天然不落入、literal
+    回歸文件流（避免「頁面捲動＋欄自身捲動」的嵌套捲動陷阱），因此也
+    不需要一條「解除」規則。此為 sprint 14 🔴-1 的根治法，見本節開頭
+    的區段註解。
+  */
+  .builder-columns__catalog,
+  .builder-columns__list {
+    position: sticky;
+    top: var(--band-h, 192px);
+    max-height: calc(100dvh - var(--band-h, 192px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+/*
+  D4 skip-nav 落點補償（sprint 15 T3.2，(internal design doc)
+  PLAN.md §D4「scroll-margin-top 為硬需求」；repo 內 tools/／src/ 目前零
+  `scroll-margin`／`scroll-padding` 前例，本規則新立）：五個 skip 連結的
+  落點錨定元素統一補 `scroll-margin-top`，值與兩欄的 `top`／`max-height`
+  同源（`var(--band-h, 192px)`，見上方「--band-h」節）——全寬不透明頂帶
+  固定於 `top: 0`（`.preview-section`），片段導覽（fragment navigation）
+  會把目標捲到 scrollport 頂端，正好進頂帶遮蔽帶，落點須以此補償。
+
+  **置於本 `@media (min-width: 1100px)` 區塊之外（不分斷點）**：遮蔽成因
+  是**頂帶本身**的 sticky——D1 A2 定案「頂帶黏著：全斷點 sticky」，見
+  `.preview-section` 規則本身不受任何 `@media` 拘束——與兩欄各自的 sticky
+  （僅本區塊內、≥1100px 生效）是兩件事：即使 <1100px 兩欄回歸文件流，
+  頂帶仍以 `top:0` 蓋在最上層，故補償在任何寬度下都需要。此規則不與任何
+  行動版「解除」規則競爭同一屬性，不落入 D7「成對規則須以 @media 包裹」
+  的範圍（比照上方頂帶節 `.preview-section{ position:sticky; top:0; … }`
+  本身亦置於 media 之外的同一慣例）。
+
+  五個落點中 `#output-dialog-open` 本身即位於頂帶內（`.preview-controls`
+  子節點），對它是無害的 no-op（該按鈕恆可見、片段導覽落點本就不會被
+  頂帶蓋住）；其餘四個分別為目錄欄／列區欄／設定欄／頂帶自身的落點錨點，
+  比照本檔既有「三欄 wrapper 與三欄本身的 min-width:0」慣例（同一原因、
+  同一值時採**集中多選擇器**寫法，逐點重複規則徒增維護面）合併一條。
+*/
+#catalog-section,
+#selected-section,
+#global-section,
+#preview-section,
+#output-dialog-open {
+  scroll-margin-top: var(--band-h, 192px);
+}
+
+@media (min-width: 1400px) {
+  /*
+    ≥1400px：僅寬度上限微調（不再新增欄位）。本頁 local override 進一步
+    放寬 header／main／footer 至 ~1800px 上限（防超寬螢幕過度拉伸；
+    width:100%＋margin-inline:auto 已確保視口更窄時不溢出，此處
+    max-width 僅設頂）。
+  */
+  header,
+  main,
+  footer {
+    max-width: 1800px;
+  }
+}
+
+/* ============================================================
+   D8 行動版目錄收合（sprint 15 T3.3，(internal design doc)
+   PLAN.md §D8；spikes/S-f-RESULT.md 11/11 實證＋「對 MS3 施工的具體
+   建議」）：目錄欄四類分區收進原生 <details>/<summary>——桌面（≥1100px）
+   恆展開，<1100px 依 catalog-collapse.ts 的單一謂詞決定初始態，使用者
+   可經 <summary> 收合/展開；main.ts wireCatalogCollapse() 接線（T3.4）。
+
+   `tools/`／`src/` 對 `details`／`summary` 先前**零規則**（PLAN §D8
+   「樣式基礎工」）——三角標記／list-style／:focus-visible／深淺主題
+   對比／prefers-reduced-motion 全套本節新立。當中 :focus-visible 焦點
+   環與 prefers-reduced-motion 動畫停格**沿用 src/style.css 全站通用
+   選擇器規則**——前者的選擇器字面即 `:focus-visible`、後者為
+   `*, *::before, *::after` 組合，天然涵蓋下方新增的 `<summary>` 與其
+   `::before` 三角標記，本節不重複定義（規則本身內容見該檔「a11y：
+   焦點可見性」／「a11y：尊重使用者的減少動態偏好」兩節，此處刻意不
+   複製其花括號語法，避免 CSS 註解內孤立 `{`／`}` 誤導本檔既有
+   `mediaBlockRange`／`tutorial-band.dom.test.ts` 一類原始文字掃描）。
+
+   本節含**第二個** `@media (min-width: 1100px)` 區塊（桌面態隱藏
+   summary）——D7 層疊紀律要求的是「成對規則明式包裹於 @media 內、
+   media 之外不留基準規則」，並非「全檔僅一個同斷點區塊」；本檔
+   `@media (prefers-reduced-motion: reduce)` 已有全站與教學帶專屬兩份
+   先例（見上方教學帶節），此處比照同一慣例，各自管各自的關注點。
+   ============================================================ */
+
+/*
+  summary 本身樣式：list-style（PLAN §D8「樣式基礎工」）移除瀏覽器預設
+  disclosure 三角形記號（Chrome/Firefox 走 list-style、Safari 另需
+  ::-webkit-details-marker，見下）——三家瀏覽器預設記號的位置/尺寸不
+  一致，改用下方自訂 ::before 三角形統一視覺。cursor:pointer 沿用
+  spikes/s-f/proto.html 既驗過的互動可視性慣例。
+*/
+.segment-lists-details__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+  list-style: none;
+}
+
+.segment-lists-details__summary::-webkit-details-marker {
+  display: none; /* Safari：list-style:none 對其原生 marker 無效，需另隱藏。 */
+}
+
+/*
+  三角標記（PLAN §D8「樣式基礎工」）：以 ::before 偽元素承載，深/淺主題
+  走 --fg-muted（同 .segment-lists__hint／.control-hint 既有次文字色，
+  對比見 src/style.css 檔頭 ≈7.6:1）。收合→展開以 rotate(90deg) 表達
+  （▶ 轉 90 度視覺近似 ▼）；transition 僅動 transform，reduced-motion
+  停格由上方全站 `*::before` 規則涵蓋（不重複定義）。
+*/
+.segment-lists-details__summary::before {
+  content: '▶';
+  display: inline-block;
+  flex-shrink: 0;
+  color: var(--fg-muted);
+  font-size: 0.75em;
+  transition: transform 0.15s ease;
+}
+
+.segment-lists-details[open] > .segment-lists-details__summary::before {
+  transform: rotate(90deg);
+}
+
+/*
+  回訪防閃動（PLAN §D8「首繪方向」；spikes/S-f-RESULT.md 平台坑 1）：
+  HTML 出貨態 <details open>（見 index.html #catalog-collapse-details
+  節點自身註解），<html> 出貨態帶 js-init-pending class（同檔 <html>
+  節點自身註解）。main.ts init() 起手第一敘述
+  applyInitialCatalogCollapseState() **先**依 catalog-collapse.ts 的
+  單一謂詞決定初始 open 態、**後**移除本 class（順序不可顛倒，否則會
+  有一格已展開的畫面先閃過，見該函式文件）；init() 另有 try/finally
+  冪等保險，確保 init 半路擲錯時本 class 仍被移除（sprint 15 code
+  review 🟡-1 修復）。
+
+  suppression 目標刻意是 `.segment-lists`（<details> 內容子節點），
+  **不是** <details> 本身——後者若被壓 0 高度，<summary> 會連帶消失，
+  暫抑期間使用者就看不到收合把手；本規則只壓內容、summary 全程可見
+  可點擊。僅 <1100px 生效（桌面恆展開，無回訪防閃動需求）。
+
+  <noscript> 逃生門見 index.html `<body>` 起手處（同一選擇器、同一
+  media query、置於本規則之後——來源序後者覆寫，不需 `!important`）：
+  JS 完全失效時 js-init-pending 永遠不會被移除，若無逃生門會使目錄在
+  <1100px 下被本規則永久壓成 0 高度，牴觸 D8「JS 失效態下目錄仍可達」
+  的 fail-open 承諾。
+*/
+@media (max-width: 1099.98px) {
+  html.js-init-pending #catalog-section .segment-lists {
+    max-height: 0;
+    overflow: hidden;
+  }
+}
+
+/*
+  桌面態硬條件（PLAN §D8「桌面態硬條件」；S-f-RESULT.md 序列 5 機械
+  驗證）：≥1100px 時 <summary> 不得為 Tab 停點、不得可點擊、a11y 播報與
+  可見狀態一致——`display:none` 同時移出 render tree 與 a11y tree（非
+  `visibility:hidden`／`opacity:0`，後兩者仍是 a11y tree 節點、仍可能是
+  Tab 停點），三項硬條件因此同時滿足；PLAN 已明確排除 `::details-content`
+  純 CSS 強制展開路徑（瀏覽器支援晚於 TECHSTACK 底線，且 `open` 仍為
+  `false` 會使 a11y tree 說謊）。main.ts wireCatalogCollapse() 於跨斷點
+  切至桌面時把 `<details>.open` 程式化設回 `true`（不受本規則影響，純
+  視覺層面；機制 (a) summary-only 下此程式化寫入天生不會被誤判為使用者
+  互動而觸發持久化寫入，見 catalog-collapse.ts 檔頭與 main.ts 該函式
+  文件）。
+*/
+@media (min-width: 1100px) {
+  .segment-lists-details__summary {
+    display: none;
+  }
+}
+
+/* ---- 語言切換鈕（T5.4；(internal design doc) §D5
+   A-1／A-4）：目前僅本工具頁支援語言切換，故未比照 .theme-toggle 收斂
+   進 src/style.css 共用五頁——樣式沿用該規則完全相同的 token 組合（見
+   src/style.css 該規則旁註解，對比值已隨全站色票驗證過），僅追加
+   margin-left 與緊鄰的 .theme-toggle 並列（兩者皆 inline-block，隨行內
+   流排列）。 ---- */
+.lang-toggle {
+  display: inline-block;
+  margin-top: 0.75rem;
+  margin-left: 0.5rem;
+  padding: 0.375rem 0.875rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.lang-toggle:hover {
+  border-color: var(--link);
+}
+
+/* ============================================================
+   教學帶（T2.6，(internal design doc) §D5「拖曳教學」；
+   結構與 i18n 掛標決策見 index.html `#tutorial-band-slot` 節點自身
+   註解）。全數用 class 選擇器、無 `!important`——`[hidden]` 隱藏防禦
+   （src/style.css `[hidden]{display:none!important}`）對本區塊天然
+   有效，見 spikes/S1-RESULT.md「hidden 警語」；T3.5 dismiss 接線將
+   倚賴此不變量掛/移除 `hidden` 屬性。
+   ============================================================ */
+.tutorial-band {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background-color: var(--surface-dim);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+/* 抓取圖示（⠿，裝飾用、沿 .segment-row__grip 既有視覺語彙），非互動、
+   不進 tab 序（aria-hidden，天然）。 */
+.tutorial-band__grip {
+  color: var(--fg-muted); /* ≈ 7.6:1，同 .segment-row__grip 對比註記 */
+  flex-shrink: 0;
+}
+
+/* SVG 迷你動畫容器：currentColor 承接本規則 color，深/淺主題跟隨
+   （S1-RESULT.md 檢核 3／7 通過）。 */
+.tutorial-band__svg {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+/* 方塊沿虛線位移 keyframes loop——僅動 `transform`，不改任一維度
+   尺寸（寬高由 SVG 自身 width/height 屬性固定），故 reduced-motion
+   停格時版面尺寸天然不變（無需額外補償規則）。 */
+.tutorial-band__svg-box {
+  animation: tutorial-band-drift 2.2s ease-in-out infinite;
+}
+
+@keyframes tutorial-band-drift {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(28px);
+  }
+  88%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* prefers-reduced-motion 停格：僅關閉 animation，不動任何版面尺寸
+   屬性——與全站慣例一致（src/style.css:357 起、本檔既有
+   .threshold__toggle::before 等規則不重複定義，本規則為教學帶專屬
+   keyframes 的對應停格，必須局部補在本檔，理由同上方全站規則管不到
+   本檔新增的 keyframes 名稱）。 */
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-band__svg-box {
+    animation: none;
+  }
+}
+
+.tutorial-band__text {
+  flex: 1 1 auto;
+  font-size: 0.875rem;
+  color: var(--fg);
+}
+
+.tutorial-band__dismiss {
+  flex-shrink: 0;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8125rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.25rem;
+  background-color: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.tutorial-band__dismiss:hover {
+  background-color: var(--surface-dim);
+}

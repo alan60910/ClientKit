@@ -1,0 +1,102 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Workflow-level token is read-only; pages/id-token are granted only to the
+# deploy job below.
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# actions 以 commit SHA pin（sprint 17 D6；協調者 2026-09-23 以 `git ls-remote --tags`
+# 解析 peeled tag），tag 留註解供升版對照。
+
+jobs:
+  # 兩 repo 分流（sprint 17 D6）：本檔在私有開發 repo 與公開鏡像 ClientKit 為
+  # 同一份。windows-test 以 job 層 `if: github.repository == 'alan60910/ClientKit'`
+  # 限定只在公開鏡像執行（workflow 層不支援 `if`）；build／deploy 經 `needs`
+  # 連帶 skipped，私有 main 被 push 時整個 run 不紅、不計分鐘。
+  # 跨平台部署 gate（S5-T4.1）：ClientKit 治理上僅收直推 main 的快照（無外部
+  # merge），但 test.yml 亦隨快照鏡像至 ClientKit，外部對 ClientKit main 送
+  # PR 時仍以唯讀 token 觸發、照樣跑。部署路徑本身的跨平台 gate 是本
+  # windows job：其自帶 ps1 5.1／pwsh 7 真執行前置，build 依賴其成功，失敗
+  # 則不 build、不部署，不倚賴 branch protection。ubuntu 側的 bash+jq 與
+  # 單元/黃金 gate 由下方 build job 的 npm test 步驟承擔（另補 jq 保險步）。
+  windows-test:
+    if: github.repository == 'alan60910/ClientKit'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  build:
+    needs: windows-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ubuntu bash+jq 真執行 gate 需系統 jq（見 test.yml 同名步說明）。
+      - name: Ensure jq (ubuntu bash+jq real-exec gate)
+        run: jq --version || (sudo apt-get update && sudo apt-get install -y jq)
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify dist
+        run: npm run verify:dist
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

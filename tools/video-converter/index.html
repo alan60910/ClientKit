@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>影片格式轉換｜ClientKit</title>
+    <meta
+      name="description"
+      content="在瀏覽器端將 MKV/MOV/AVI/WebM 等常見容器轉換為 MP4，檔案不會上傳。"
+    />
+    <!-- 讓瀏覽器在任何 CSS 套用前就能為深色偏好使用者選深色預設畫布（配合下方換頁白閃防護 style）。 -->
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      主題切換 FOUC 防護（(internal design doc) §D4，
+      實文釘死；四個工具頁 byte-identical）：在樣式表套用前先讀
+      localStorage 的手動切換紀錄並補上 data-theme，避免「深色 OS 手選
+      淺色」重整時先閃一下深色 UA 預設。優先次序（localStorage＞系統＞
+      淺色）與 toggle 鈕的 wiring／aria-pressed 同步在 src/theme.ts，
+      main.ts 於任何渲染前 import。
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('clientkit-theme');
+          if (t === 'dark' || t === 'light')
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      /* 防換頁白閃：首繪前先給 html 主題底色（色值須與 src/style.css 的 --bg／--dark-bg 保持同步） */
+      html { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme='light']) { background-color: #0f1419; }
+      }
+      html[data-theme='dark'] { background-color: #0f1419; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="../../" class="back-link">← 返回 ClientKit</a>
+      <h1>影片格式轉換</h1>
+      <p>選擇一個影片檔案，在瀏覽器端轉換為 MP4；檔案不會上傳到任何伺服器。</p>
+      <!--
+        全域揭露（PLAN §Goals 預期管理）：首載 32 MB 核心與「輸出一律
+        MP4」對所有使用者恆真，落於 intro 而非某個條件式訊息區。
+      -->
+      <p>
+        首次使用需下載約 32 MB 的轉換核心元件（之後由瀏覽器快取）；輸出一律為
+        MP4 格式，需要轉碼的檔案可能耗時數分鐘至數十分鐘。
+      </p>
+      <button type="button" class="theme-toggle" aria-pressed="false">深色模式切換</button>
+    </header>
+    <main>
+      <section class="tool-section" aria-labelledby="select-heading">
+        <h2 id="select-heading">選擇檔案</h2>
+        <!--
+          與 gif-editor／apng-to-gif 同款：整卡包 <label>，點擊任一處等效
+          「選擇檔案」；拖放由 main.ts 綁定；鍵盤等效＝Tab 到 sr-only 的
+          原生 file input（留在 tab order）後 Enter/Space 開啟選檔器。
+          accept 以 MIME＋副檔名寬鬆並列：Windows 常見 .mkv 未註冊
+          video/* MIME，只靠 video/* 會把主要目標格式擋在選檔器外。
+        -->
+        <div class="file-drop" id="file-drop">
+          <label for="file-input" class="file-drop__label">
+            <span class="file-drop__icon" aria-hidden="true">🎬</span>
+            <span class="file-drop__text">
+              拖放影片檔案到此處，或<span class="file-drop__button">選擇檔案</span>
+            </span>
+          </label>
+          <input
+            type="file"
+            id="file-input"
+            name="file"
+            accept="video/*,audio/*,.mkv,.mov,.avi,.webm,.mp4,.m4v,.ts,.flv,.wmv,.mpg,.mpeg,.ogv,.3gp"
+            class="sr-only"
+          />
+        </div>
+        <p id="selected-filename" class="selected-filename" hidden></p>
+      </section>
+
+      <!--
+        常駐 live regions（SPEC Conventions；沿 gif-editor 模式）：main.ts
+        只以 textContent 覆寫這些節點、永不切換 hidden，僅切 .is-empty
+        收合視覺框——SR 的 live-region 監看從頁面載入起就掛在節點上。
+        分工：
+        - #memory-warning：記憶體 gate warn-continue（警語＋「仍要繼續」／
+          「重新選擇」兩鈕）
+        - #status-message：狀態機播報（核心下載心跳／分析中／ready 策略＋
+          notices／轉換完成／預覽失敗子態／已取消）
+        - #progress-status（進度 region 內）：converting 進度 cadence＋
+          「仍在處理中」心跳
+        - #error-message：role=alert 錯誤成因，保持純文字——logTail 與
+          重試鈕另置 #error-extras（非 live region，hidden 可自由切換）
+      -->
+      <div role="status" id="memory-warning" class="warning-message is-empty">
+        <p id="memory-warning-text"></p>
+        <button type="button" id="memory-warning-continue-button" class="button-like" hidden>
+          仍要繼續
+        </button>
+        <button
+          type="button"
+          id="memory-warning-reselect-button"
+          class="button-like button-like--secondary"
+          hidden
+        >
+          重新選擇
+        </button>
+      </div>
+
+      <div role="status" id="status-message" class="status-message is-empty">
+        <p id="status-text"></p>
+      </div>
+
+      <div role="alert" id="error-message" class="error-message is-empty"></div>
+      <div id="error-extras" class="error-extras" hidden>
+        <details id="error-log-details">
+          <summary>技術細節（ffmpeg 記錄末尾）</summary>
+          <pre id="error-log-tail" class="error-log-tail"></pre>
+        </details>
+        <button type="button" id="error-reset-button" class="button-like button-like--secondary">
+          重新開始
+        </button>
+      </div>
+
+      <!--
+        ready 態：探測摘要＋轉換策略＋條件式告知的視覺呈現。等效播報由
+        #status-message「一次播齊」承擔（PLAN §UI ready 列——不得只做
+        視覺文字），此區塊僅視覺；probing 前 hidden、分析完成才 unhide。
+      -->
+      <section class="tool-section" aria-labelledby="ready-heading" id="ready-section" hidden>
+        <h2 id="ready-heading">分析結果</h2>
+        <p id="probe-summary" class="probe-summary" hidden></p>
+        <p id="strategy-text" class="strategy-text"></p>
+        <ul id="notice-list" class="notice-list" hidden></ul>
+        <button type="button" id="convert-button" class="button-like">開始轉換</button>
+      </section>
+
+      <!--
+        進度 region（landmark，aria-label 即 accessible name）：取消鈕
+        「必須」位於本 region 內（PLAN §UI——承接 BACKLOG sprint 03 暫停鈕
+        教訓：操作鈕不在對應 region 內，region 導覽使用者找不到），於
+        loading-core／probing／converting 三態皆可用。#progress-status 為
+        常駐 role=status；section 本身永不 hidden，僅 .is-empty 收合視覺
+        （見 style.css）；<progress> 非 live region，顯隱可自由切換，
+        loading-core／probing 期以無 value 屬性呈現不定型進度。
+      -->
+      <section class="progress-section is-empty" id="progress-section" aria-label="轉換進度">
+        <progress id="progress-bar" max="100" value="0" aria-label="轉換進度" hidden></progress>
+        <p role="status" aria-live="polite" id="progress-status"></p>
+        <button type="button" id="cancel-button" class="button-like button-like--secondary" hidden>
+          取消
+        </button>
+      </section>
+
+      <!--
+        結果區：tabindex="-1" 承接 done 態的程式化焦點——先播「轉換完成」，
+        延一拍（rAF×2）後 focus 本容器，不 focus <video> 本身（PLAN §UI
+        done 列競態契約）。<video> 不 autoplay（毋須暫停鈕／poster），
+        aria-label 由 main.ts 依 audio-only 分支設影片／音訊語意；onerror
+        → 預覽失敗子態（隱藏 video、保留下載）。下載連結 href／download／
+        文字由 main.ts 原子設定後才 unhide（href 刻意留空佔位）。
+      -->
+      <section
+        class="tool-section preview-panel"
+        aria-labelledby="result-heading"
+        id="result-section"
+        tabindex="-1"
+        hidden
+      >
+        <h2 id="result-heading">轉換結果</h2>
+        <video id="result-video" controls preload="metadata" hidden></video>
+        <a id="download-link" download hidden></a>
+        <button type="button" id="convert-another-button" class="button-like button-like--secondary">
+          轉換其他檔案
+        </button>
+      </section>
+    </main>
+    <footer>
+      <p>ClientKit — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>
+        © 2026 alan60910 · <a href="https://github.com/alan60910">GitHub</a> ·
+        <a href="https://github.com/alan60910/ClientKit/blob/main/LICENSE">MIT License</a>
+      </p>
+      <p>影片轉檔引擎：ffmpeg.wasm core（GPL-2.0-or-later，獨立資產載入）</p>
+    </footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
