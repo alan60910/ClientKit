@@ -330,4 +330,6 @@ sprint 17（公開發佈準備）：品牌改為 ClientKit（原 EZTools）—�
 `main`；快照發佈流程就緒（`npm run publish:public`，預設 dry-run、`--push`
 才推送至公開鏡像 ClientKit；`git archive` 公開子集、秘密掃描與身分斷言
 fail-closed），`deploy.yml` 兩 repo 同一份、job 以 repository 條件只在
-ClientKit 側執行。
+ClientKit 側執行。2026-09-23 首次快照發佈（私有 `origin/main` `5cc5ded` →
+ClientKit `main`），**Pages 已上線**：`https://alan60910.github.io/ClientKit/`
+（專案路徑區分大小寫，小寫 `/clientkit/` 為 404）。
